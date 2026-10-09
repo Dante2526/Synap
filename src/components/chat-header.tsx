@@ -1,12 +1,18 @@
 import React from 'react';
-import { PanelLeft, Plus, AlertCircle, Settings } from 'lucide-react';
+import { PanelLeft, Plus, AlertCircle, Settings, FolderGit2, GitBranch, X, RefreshCw } from 'lucide-react';
 import { ClaudeLogo } from './claude-logo';
+import { ActiveRepoState } from '../lib/types';
 
 interface ChatHeaderProps {
   onToggleSidebar: () => void;
   onNewChat: () => void;
   hasApiKey: boolean | null;
   onOpenSettings?: () => void;
+  activeRepo?: ActiveRepoState | null;
+  pendingChangesCount?: number;
+  onOpenSourceControl?: () => void;
+  onOpenRepoList?: () => void;
+  onCloseRepo?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -14,6 +20,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onNewChat,
   hasApiKey,
   onOpenSettings,
+  activeRepo,
+  pendingChangesCount = 0,
+  onOpenSourceControl,
+  onOpenRepoList,
+  onCloseRepo,
 }) => {
   return (
     <header className="h-13 sm:h-14 border-b border-[#2d2b26] bg-[#1b1a17]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between sticky top-0 z-30 select-none max-w-full overflow-hidden">
@@ -40,12 +51,79 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
       </div>
 
-      {/* Center: Claude Asterisk Logo & Synap Branding */}
-      <div className="flex items-center gap-2">
-        <ClaudeLogo className="w-5 h-5 text-[#d97757]" />
-        <span className="font-serif text-base sm:text-lg text-[#f3efe6] tracking-tight font-normal">
-          Synap
-        </span>
+      {/* Center: Synap Branding or Active Repo Indicator */}
+      <div className="flex items-center gap-2 max-w-[50%] min-w-0">
+        {activeRepo ? (
+          <div className="flex items-center gap-1.5 p-1 px-2.5 rounded-xl bg-[#23211d] border border-[#3e3b33] text-xs font-mono min-w-0 shadow-xs">
+            <button
+              type="button"
+              onClick={onOpenSourceControl}
+              title={`Repositório exclusivo deste chat: ${activeRepo.fullName} (${activeRepo.branch}). Clique para abrir Source Control.`}
+              className="flex items-center gap-1.5 text-[#f3efe6] hover:text-[#d97757] transition truncate cursor-pointer"
+            >
+              <FolderGit2 className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
+              <span className="truncate max-w-[120px] sm:max-w-[190px] font-medium">
+                {activeRepo.fullName}
+              </span>
+              <span className="text-[#8c867a]">·</span>
+              <span className="text-[#c4bfb6] truncate max-w-[70px]">{activeRepo.branch}</span>
+            </button>
+
+            {pendingChangesCount > 0 && (
+              <button
+                type="button"
+                onClick={onOpenSourceControl}
+                title={`${pendingChangesCount} alteração(ões) pendente(s) no Source Control`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40 hover:bg-[#d97757]/30 transition cursor-pointer"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#d97757] animate-pulse" />
+                <span>●{pendingChangesCount}</span>
+              </button>
+            )}
+
+            {onOpenRepoList && (
+              <button
+                type="button"
+                onClick={onOpenRepoList}
+                title="Trocar repositório deste chat"
+                className="p-1 rounded text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#322f28] transition cursor-pointer ml-0.5"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            )}
+
+            {onCloseRepo && (
+              <button
+                type="button"
+                onClick={onCloseRepo}
+                title="Desconectar repositório deste chat"
+                className="p-1 rounded text-[#8c867a] hover:text-rose-400 hover:bg-[#322f28] transition cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <ClaudeLogo className="w-5 h-5 text-[#d97757]" />
+              <span className="font-serif text-base sm:text-lg text-[#f3efe6] tracking-tight font-normal">
+                Synap
+              </span>
+            </div>
+            {onOpenRepoList && (
+              <button
+                type="button"
+                onClick={onOpenRepoList}
+                title="Conectar um repositório GitHub exclusivamente a este chat"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#24221d] hover:bg-[#2e2a23] text-[#8c867a] hover:text-[#f3efe6] border border-[#38342c] text-[11px] font-sans transition cursor-pointer"
+              >
+                <FolderGit2 className="w-3 h-3 text-[#d97757]" />
+                <span>Vincular Repo</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right side: Status indicator & Settings */}

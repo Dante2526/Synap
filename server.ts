@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import statusHandler from './api/status';
 import chatHandler from './api/chat';
 import ttsHandler from './api/tts';
+import githubHandler from './api/github';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -96,6 +97,7 @@ function adaptWebHandler(handler: (req: Request) => Promise<Response>) {
 app.all('/api/status', adaptWebHandler(statusHandler));
 app.all('/api/chat', adaptWebHandler(chatHandler));
 app.all('/api/tts', adaptWebHandler(ttsHandler));
+app.all('/api/github', adaptWebHandler(githubHandler));
 
 // Setup Vite middleware in dev or serve static files in production
 async function startServer() {

@@ -1,9 +1,22 @@
 import React, { useState } from 'react';
-import { Plus, MessageSquare, Trash2, Edit2, Check, X, Settings } from 'lucide-react';
-import { Conversation } from '../lib/types';
+import {
+  Plus,
+  MessageSquare,
+  Trash2,
+  Edit2,
+  Check,
+  X,
+  Settings,
+  GitBranch,
+  FolderGit2,
+} from 'lucide-react';
+import { Conversation, ActiveRepoState } from '../lib/types';
 import { formatDate } from '../lib/utils';
 import { PWAInstallButton } from './pwa-install-button';
 import { ClaudeLogo } from './claude-logo';
+import { RepoList } from './github/repo-list';
+import { FileExplorer } from './github/file-explorer';
+import { SourceControlPanel } from './source-control/source-control-panel';
 
 interface ChatSidebarProps {
   conversations: Conversation[];
@@ -15,6 +28,14 @@ interface ChatSidebarProps {
   onOpenSettings: () => void;
   isOpen: boolean;
   onClose: () => void;
+  // GitHub & Source Control props
+  activeRepo: ActiveRepoState | null;
+  sidebarTab: 'chats' | 'repos' | 'source-control';
+  onChangeTab: (tab: 'chats' | 'repos' | 'source-control') => void;
+  onSelectRepo: (repo: ActiveRepoState) => void;
+  onCloseRepo: () => void;
+  onChangeBranch: (branch: string) => void;
+  pendingChangesCount: number;
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = ({
@@ -27,10 +48,20 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onOpenSettings,
   isOpen,
   onClose,
+  activeRepo,
+  sidebarTab,
+  onChangeTab,
+  onSelectRepo,
+  onCloseRepo,
+  onChangeBranch,
+  pendingChangesCount,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // If in repos tab and repo is active, show File Explorer, otherwise Repo List
+  const [viewingExplorer, setViewingExplorer] = useState(false);
 
   const startRename = (conv: Conversation, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -94,6 +125,83 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           </button>
         </div>
 
+        {/* Navigation Tabs (Chats / Repos / Source Control) */}
+        <div className="px-3 pt-2 pb-1.5 flex items-center gap-1 border-b border-[#2d2a25] bg-[#161512]">
+          <button
+            type="button"
+            onClick={() => onChangeTab('chats')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+              sidebarTab === 'chats'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Chat</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeTab('repos')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+              sidebarTab === 'repos'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
+            }`}
+          >
+            <FolderGit2 className="w-3.5 h-3.5" />
+            <span>Repos</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeTab('source-control')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer relative ${
+              sidebarTab === 'source-control'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
+            }`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            <span>Git</span>
+            {pendingChangesCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#d97757] text-white text-[9px] font-bold flex items-center justify-center">
+                {pendingChangesCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {sidebarTab === 'repos' ? (
+          activeRepo && viewingExplorer ? (
+            <FileExplorer
+              activeRepo={activeRepo}
+              onCloseRepo={onCloseRepo}
+              onChangeBranch={onChangeBranch}
+              onBackToRepoList={() => setViewingExplorer(false)}
+            />
+          ) : (
+            <RepoList
+              activeRepo={activeRepo}
+              onSelectRepo={(r) => {
+                onSelectRepo(r);
+                setViewingExplorer(true);
+              }}
+              onOpenSettings={onOpenSettings}
+            />
+          )
+        ) : sidebarTab === 'source-control' ? (
+          <SourceControlPanel
+            activeRepo={activeRepo}
+            onOpenRepoList={() => {
+              onChangeTab('repos');
+              setViewingExplorer(false);
+            }}
+            onOpenSettings={onOpenSettings}
+          />
+        ) : (
+          <>
         {/* New Chat Button (Claude style) */}
         <div className="p-3">
           <button
@@ -175,6 +283,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                       <div className="truncate flex-1">
                         <div className="truncate flex items-center gap-1.5">
                           <span className="truncate">{conv.title}</span>
+                          {conv.activeRepo && (
+                            <span
+                              className="flex-shrink-0 text-[9px] px-1.5 py-0.2 rounded bg-[#2a261f] text-[#d97757] border border-[#d97757]/30 font-mono font-medium truncate max-w-[80px]"
+                              title={`Repositório exclusivo deste chat: ${conv.activeRepo.fullName} (${conv.activeRepo.branch})`}
+                            >
+                              {conv.activeRepo.repo}
+                            </span>
+                          )}
                           {(conv.isPlanMode || conv.messages?.some((m) => m.isPlanMode)) && (
                             <span className="flex-shrink-0 text-[9px] px-1.5 py-0.2 rounded bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/35 font-mono font-medium">
                               Plano
@@ -242,6 +358,8 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             })
           )}
         </div>
+          </>
+        )}
 
         {/* Bottom actions (Claude style) */}
         <div className="p-3 border-t border-[#2d2a25] space-y-2">

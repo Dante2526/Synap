@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AlertCircle, WifiOff, X } from 'lucide-react';
+import { AlertCircle, WifiOff, X, GitBranch, ExternalLink, FileCode, Check } from 'lucide-react';
 import {
   Conversation,
   Message,
@@ -7,6 +7,9 @@ import {
   ReasoningEffort,
   AppSettings,
   AttachedDocument,
+  ActiveRepoState,
+  PendingChange,
+  MessageEditedFile,
 } from './lib/types';
 import {
   loadConversations,
@@ -23,11 +26,98 @@ import { ChatMessage } from './components/chat-message';
 import { ChatInput } from './components/chat-input';
 import { SettingsModal } from './components/settings-modal';
 import { ClaudeLogo } from './components/claude-logo';
+import { PendingChangesProvider, usePendingChanges } from './lib/pending-changes';
+import { DiffViewer } from './components/source-control/diff-viewer';
+import { getOctokit, fetchFileContent, fetchRepoContents, searchCode } from './lib/github';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
 
+const GITHUB_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'read_file',
+      description: 'Lê conteúdo de um arquivo do repositório ativo',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Caminho relativo do arquivo (ex: src/App.tsx)' },
+          branch: { type: 'string', description: 'Branch opcional (padrão: branch ativa)' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_files',
+      description: 'Lista arquivos e diretórios de um caminho no repositório ativo',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Caminho relativo (vazio para a raiz do repositório)' },
+          branch: { type: 'string', description: 'Branch opcional' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_code',
+      description: 'Busca por ocorrências de texto ou código no repositório ativo',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Termo de busca ou nome de função/classe' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description:
+        'Edita ou cria um arquivo no repositório ativo. A alteração fica pendente no Source Control para revisão do usuário e NÃO commita automaticamente.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Caminho relativo do arquivo (ex: src/lib/utils.ts)' },
+          content: { type: 'string', description: 'Novo conteúdo completo do arquivo' },
+          type: {
+            type: 'string',
+            enum: ['modified', 'added', 'deleted'],
+            description: 'Tipo de modificação: modified, added ou deleted',
+          },
+        },
+        required: ['path', 'content', 'type'],
+      },
+    },
+  },
+];
+
 export default function App() {
+  return (
+    <PendingChangesProvider>
+      <AppContent />
+    </PendingChangesProvider>
+  );
+}
+
+function AppContent() {
+  const {
+    changes,
+    addChange,
+    stageChange,
+    unstageChange,
+    discardChange,
+    updateChangeContent,
+  } = usePendingChanges();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -36,10 +126,22 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [hasGeminiKey, setHasGeminiKey] = useState<boolean | null>(null);
+  const [hasGitHubToken, setHasGitHubToken] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // Settings
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+
+  // GitHub & Source Control state
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'repos' | 'source-control'>('chats');
+  const [activeRepo, setActiveRepo] = useState<ActiveRepoState | null>(null);
+
+  const [diffViewingChange, setDiffViewingChange] = useState<PendingChange | null>(null);
+  const [toastNotification, setToastNotification] = useState<{
+    message: string;
+    actionLabel?: string;
+    onAction?: () => void;
+  } | null>(null);
 
   // Model & Reasoning Effort
   const [selectedModel, setSelectedModel] = useState<ModelId>(() => {
@@ -60,6 +162,128 @@ export default function App() {
 
   const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
 
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Check backend server status
+  useEffect(() => {
+    fetch('/api/status')
+      .then((res) => res.json())
+      .then((data) => {
+        setHasApiKey(Boolean(data.hasApiKey));
+        setHasGeminiKey(Boolean(data.hasGeminiKey));
+        setHasGitHubToken(Boolean(data.hasGitHubToken));
+      })
+      .catch((err) => {
+        console.warn('Could not verify server status:', err);
+        setHasApiKey(false);
+        setHasGitHubToken(false);
+      });
+  }, []);
+
+  // Monitor online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load Settings and Conversations
+  useEffect(() => {
+    const loadedSettings = loadSettings();
+    setSettings(loadedSettings);
+
+    loadConversations().then((loaded) => {
+      setConversations(loaded);
+      if (loaded.length > 0) {
+        setActiveId(loaded[0].id);
+        if (loaded[0].model) setSelectedModel(loaded[0].model as ModelId);
+        if (loaded[0].reasoningEffort) setReasoningEffort(loaded[0].reasoningEffort);
+        if (loaded[0].isPlanMode !== undefined) setIsPlanMode(loaded[0].isPlanMode);
+        if (loaded[0].activeRepo) setActiveRepo(loaded[0].activeRepo);
+        else setActiveRepo(null);
+      }
+    });
+  }, []);
+
+  // Persist conversations
+  useEffect(() => {
+    if (conversations.length > 0 && settings.saveHistoryLocally) {
+      saveConversations(conversations);
+    }
+  }, [conversations, settings.saveHistoryLocally]);
+
+  // Scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversations, isStreaming]);
+
+  // Active conversation helper
+  const activeConversation = conversations.find((c) => c.id === activeId) || null;
+
+  // Active repo changes count
+  const pendingChangesCount = activeRepo
+    ? changes.filter(
+        (c) => c.repo === activeRepo.fullName && c.branch === activeRepo.branch
+      ).length
+    : 0;
+
+  const handleSelectRepo = (repo: ActiveRepoState) => {
+    setActiveRepo(repo);
+    if (activeId) {
+      setConversations((all) =>
+        all.map((c) =>
+          c.id === activeId ? { ...c, activeRepo: repo, updatedAt: Date.now() } : c
+        )
+      );
+    }
+  };
+
+  const handleCloseRepo = () => {
+    setActiveRepo(null);
+    if (activeId) {
+      setConversations((all) =>
+        all.map((c) =>
+          c.id === activeId ? { ...c, activeRepo: null, updatedAt: Date.now() } : c
+        )
+      );
+    }
+  };
+
+  const handleChangeBranch = (branch: string) => {
+    if (!activeRepo) return;
+    const updated = { ...activeRepo, branch };
+    setActiveRepo(updated);
+    if (activeId) {
+      setConversations((all) =>
+        all.map((c) =>
+          c.id === activeId ? { ...c, activeRepo: updated, updatedAt: Date.now() } : c
+        )
+      );
+    }
+  };
+
+  const handleViewDiffForPath = (path: string) => {
+    const found = changes.find(
+      (c) => c.path === path && (activeRepo ? c.repo === activeRepo.fullName : true)
+    );
+    if (found) {
+      setDiffViewingChange(found);
+    } else {
+      setSidebarTab('source-control');
+      setIsSidebarOpen(true);
+    }
+  };
+
   const handleTogglePlanMode = () => {
     setIsPlanMode((prev) => {
       const next = !prev;
@@ -69,185 +293,101 @@ export default function App() {
       }
       if (activeId) {
         setConversations((all) =>
-          all.map((c) =>
-            c.id === activeId
-              ? {
-                  ...c,
-                  isPlanMode: next,
-                  reasoningEffort: next && c.reasoningEffort === 'low' ? 'high' : c.reasoningEffort,
-                  updatedAt: Date.now(),
-                }
-              : c
-          )
+          all.map((c) => (c.id === activeId ? { ...c, isPlanMode: next } : c))
         );
       }
       return next;
     });
   };
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Initial load
-  useEffect(() => {
-    // Load settings
-    const storedSettings = loadSettings();
-    setSettings(storedSettings);
-
-    // Apply dark mode class to html
-    if (storedSettings.darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-
-    // Load conversations from IndexedDB
-    loadConversations().then((loaded) => {
-      setConversations(loaded);
-      if (loaded.length > 0) {
-        setActiveId(loaded[0].id);
-        setIsPlanMode(Boolean(loaded[0].isPlanMode));
-        if (loaded[0].model === 'z-ai/glm-5.3' || loaded[0].model === 'z-ai/glm-5.3-flash') {
-          setSelectedModel(loaded[0].model as ModelId);
-        }
-        if (loaded[0].reasoningEffort) {
-          setReasoningEffort(loaded[0].reasoningEffort);
-        }
-      }
-    });
-
-    // Check server status
-    fetch('/api/status')
-      .then((res) => res.json())
-      .then((data) => {
-        setHasApiKey(Boolean(data.hasApiKey));
-        setHasGeminiKey(Boolean(data.hasGeminiKey));
-      })
-      .catch(() => {
-        setHasApiKey(false);
-        setHasGeminiKey(false);
-      });
-
-    // Connectivity listeners
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  // Save conversations to IndexedDB whenever conversations state changes
-  useEffect(() => {
-    if (settings.saveHistoryLocally) {
-      saveConversations(conversations);
-    }
-  }, [conversations, settings.saveHistoryLocally]);
-
-  // Persist model selection
   const handleSelectModel = (model: ModelId) => {
     setSelectedModel(model);
     localStorage.setItem(MODEL_STORAGE_KEY, model);
+    if (activeId) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...c, model, updatedAt: Date.now() } : c))
+      );
+    }
   };
 
-  // Persist reasoning effort
   const handleSelectReasoningEffort = (effort: ReasoningEffort) => {
     setReasoningEffort(effort);
     localStorage.setItem(REASONING_STORAGE_KEY, effort);
-  };
-
-  const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    const updated = { ...settings, ...newSettings };
-    setSettings(updated);
-    saveSettings(updated);
-
-    if (updated.darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    if (activeId) {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeId ? { ...c, reasoningEffort: effort, updatedAt: Date.now() } : c
+        )
+      );
     }
   };
 
-  // Active conversation object
-  const activeConversation = conversations.find((c) => c.id === activeId) || null;
-
-  // Auto-scroll to bottom of chat
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom('instant');
-  }, [activeId]);
-
-  useEffect(() => {
-    if (isStreaming) {
-      scrollToBottom('smooth');
-    }
-  }, [conversations, isStreaming, scrollToBottom]);
-
-  // Start a new chat
   const handleNewChat = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setIsStreaming(false);
-    }
     setActiveId(null);
-    setErrorMessage(null);
     setIsPlanMode(false);
+    setActiveRepo(null);
+    if (window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
   };
 
-  // Select a conversation
   const handleSelectConversation = (id: string) => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setIsStreaming(false);
-    }
     setActiveId(id);
-    setErrorMessage(null);
-
-    // Sync model & reasoning effort & plan mode from conversation if present
-    const conv = conversations.find((c) => c.id === id);
-    if (conv) {
-      if (conv.model === 'z-ai/glm-5.3' || conv.model === 'z-ai/glm-5.3-flash') {
-        setSelectedModel(conv.model as ModelId);
+    const target = conversations.find((c) => c.id === id);
+    if (target) {
+      if (target.model) setSelectedModel(target.model as ModelId);
+      if (target.reasoningEffort) setReasoningEffort(target.reasoningEffort);
+      if (target.isPlanMode !== undefined) {
+        setIsPlanMode(target.isPlanMode);
+      } else {
+        setIsPlanMode(false);
       }
-      if (conv.reasoningEffort) {
-        setReasoningEffort(conv.reasoningEffort);
-      }
-      setIsPlanMode(Boolean(conv.isPlanMode));
+      setActiveRepo(target.activeRepo || null);
+    }
+    if (window.innerWidth < 768) {
+      setIsSidebarOpen(false);
     }
   };
 
-  // Delete conversation
   const handleDeleteConversation = (id: string) => {
-    const updated = conversations.filter((c) => c.id !== id);
-    setConversations(updated);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) {
-      const nextActive = updated.length > 0 ? updated[0] : null;
-      setActiveId(nextActive ? nextActive.id : null);
-      setIsPlanMode(Boolean(nextActive?.isPlanMode));
+      const remaining = conversations.filter((c) => c.id !== id);
+      if (remaining.length > 0) {
+        setActiveId(remaining[0].id);
+        if (remaining[0].model) setSelectedModel(remaining[0].model as ModelId);
+        if (remaining[0].reasoningEffort) setReasoningEffort(remaining[0].reasoningEffort);
+        if (remaining[0].isPlanMode !== undefined) setIsPlanMode(remaining[0].isPlanMode);
+        setActiveRepo(remaining[0].activeRepo || null);
+      } else {
+        setActiveId(null);
+        setIsPlanMode(false);
+        setActiveRepo(null);
+      }
     }
   };
 
-  // Rename conversation
   const handleRenameConversation = (id: string, newTitle: string) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, title: newTitle, updatedAt: Date.now() } : c))
     );
   };
 
-  // Clear all conversations
+  const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
+    setSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      saveSettings(updated);
+      return updated;
+    });
+  };
+
   const handleClearHistory = async () => {
     await clearAllConversations();
     setConversations([]);
     setActiveId(null);
+    setIsPlanMode(false);
   };
 
-  // Stop Generation
   const handleStopGeneration = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -256,7 +396,123 @@ export default function App() {
     setIsStreaming(false);
   };
 
-  // Send Message
+  // Helper to execute client-side GitHub tools
+  const executeGitHubTool = async (
+    name: string,
+    args: any,
+    currentRepo: ActiveRepoState | null
+  ): Promise<{ result: string; editedFile?: MessageEditedFile }> => {
+    if (!currentRepo) {
+      return {
+        result: JSON.stringify({
+          error: 'Nenhum repositório GitHub está vinculado a esta conversa. Acesso negado.',
+        }),
+      };
+    }
+
+    if (name === 'edit_file') {
+      const { path, content, type } = args;
+      let originalContent: string | undefined = undefined;
+
+      // Try fetching original file content if modifying or deleting
+      if (type === 'modified' || type === 'deleted') {
+        try {
+          originalContent = await fetchFileContent(
+            null,
+            currentRepo.owner,
+            currentRepo.repo,
+            path,
+            currentRepo.branch
+          );
+        } catch {
+          // New file or unable to read original
+        }
+      }
+
+      await addChange({
+        path,
+        repo: currentRepo.fullName,
+        branch: currentRepo.branch,
+        type: type || 'modified',
+        originalContent,
+        newContent: content || '',
+      });
+
+      // Show toast
+      setToastNotification({
+        message: `IA editou ${path} — revise em Source Control`,
+        actionLabel: 'Ver Diff',
+        onAction: () => {
+          handleViewDiffForPath(path);
+        },
+      });
+
+      setTimeout(() => {
+        setToastNotification(null);
+      }, 5000);
+
+      const editedFile: MessageEditedFile = {
+        path,
+        type: type || 'modified',
+      };
+
+      return {
+        result: JSON.stringify({
+          success: true,
+          message: `Arquivo '${path}' alterado com sucesso e salvo no Source Control local para revisão do usuário.`,
+        }),
+        editedFile,
+      };
+    }
+
+    if (name === 'read_file') {
+      try {
+        const fileContent = await fetchFileContent(
+          null,
+          currentRepo.owner,
+          currentRepo.repo,
+          args.path,
+          args.branch || currentRepo.branch
+        );
+        return { result: fileContent };
+      } catch (err: any) {
+        return { result: JSON.stringify({ error: err?.message || `Erro ao ler arquivo ${args.path}` }) };
+      }
+    }
+
+    if (name === 'list_files') {
+      try {
+        const contents = await fetchRepoContents(
+          null,
+          currentRepo.owner,
+          currentRepo.repo,
+          args.path || '',
+          args.branch || currentRepo.branch
+        );
+        return { result: JSON.stringify(contents.map((c) => ({ name: c.name, path: c.path, type: c.type }))) };
+      } catch (err: any) {
+        return { result: JSON.stringify({ error: err?.message || `Erro ao listar diretório ${args.path}` }) };
+      }
+    }
+
+    if (name === 'search_code') {
+      try {
+        const items = await searchCode(
+          null,
+          `${args.query} repo:${currentRepo.fullName}`
+        );
+        return {
+          result: JSON.stringify(items),
+        };
+      } catch (err: any) {
+        return { result: JSON.stringify({ error: err?.message || `Erro na busca de código: ${args.query}` }) };
+      }
+    }
+
+    return { result: JSON.stringify({ error: `Ferramenta desconhecida: ${name}` }) };
+  };
+
+  // Send Message with Tools support
   const handleSendMessage = async (
     text: string,
     images: string[] = [],
@@ -268,7 +524,6 @@ export default function App() {
 
     const activePlan = overridePlanMode !== undefined ? overridePlanMode : isPlanMode;
 
-    // Auto-switch to GLM-5.3-Flash if images are attached
     let effectiveModel = selectedModel;
     if (images.length > 0 && selectedModel !== 'z-ai/glm-5.3-flash') {
       effectiveModel = 'z-ai/glm-5.3-flash';
@@ -290,10 +545,13 @@ export default function App() {
     let currentConv = activeConversation;
 
     if (!currentConvId || !currentConv) {
-      // Create new conversation
       const newId = generateId();
       const firstDocName = documents[0]?.name;
-      const titleFallback = firstDocName ? `Arquivo: ${firstDocName}` : (images.length > 0 ? 'Imagem' : 'Nova conversa');
+      const titleFallback = firstDocName
+        ? `Arquivo: ${firstDocName}`
+        : images.length > 0
+        ? 'Imagem'
+        : 'Nova conversa';
       const newTitle = generateTitleFromMessage(text || titleFallback);
       const newConv: Conversation = {
         id: newId,
@@ -304,6 +562,7 @@ export default function App() {
         model: effectiveModel,
         reasoningEffort: reasoningEffort,
         isPlanMode: activePlan,
+        activeRepo: activeRepo || null,
       };
 
       currentConvId = newId;
@@ -311,7 +570,6 @@ export default function App() {
       setConversations((prev) => [newConv, ...prev]);
       setActiveId(newId);
     } else {
-      // Append to existing conversation
       const updatedMessages = [...currentConv.messages, userMessage];
       setConversations((prev) =>
         prev.map((c) =>
@@ -322,7 +580,6 @@ export default function App() {
       );
     }
 
-    // Create placeholder for assistant response
     const assistantMessageId = generateId();
     const assistantPlaceholder: Message = {
       id: assistantMessageId,
@@ -344,13 +601,11 @@ export default function App() {
 
     setIsStreaming(true);
 
-    // Prepare payload messages
     const rawMessages = currentConv
       ? [...currentConv.messages, userMessage]
       : [userMessage];
 
-    // Format any message with attached documents into formatted text
-    let contextMessages = rawMessages.map((m) => {
+    let contextMessages: any[] = rawMessages.map((m) => {
       let content = m.content || '';
       if (m.documents && m.documents.length > 0) {
         const docsBlock = m.documents
@@ -368,7 +623,21 @@ export default function App() {
       };
     });
 
-    // If Plan Mode is active, inject the Planning directive
+    // Injetar contexto de repositório apenas se vinculado a esta conversa
+    const chatActiveRepo = currentConv?.activeRepo !== undefined ? currentConv.activeRepo : activeRepo;
+    if (chatActiveRepo) {
+      const repoSystemPrompt = {
+        role: 'system',
+        content:
+          `Você está conectado ao repositório GitHub ativo EXCLUSIVO DESTA CONVERSA: "${chatActiveRepo.fullName}" na branch "${chatActiveRepo.branch}".\n` +
+          `Você tem acesso às ferramentas de código: read_file, list_files, search_code e edit_file APENAS para o repositório "${chatActiveRepo.fullName}".\n` +
+          `Você NÃO tem permissão nem acesso a nenhum outro repositório do usuário. Cada conversa possui isolamento estrito de repositório.\n` +
+          `Ao propor alterações ou códigos para o repositório, utilize OBRIGATORIAMENTE a ferramenta edit_file. ` +
+          `A alteração ficará salva localmente no Source Control para o usuário revisar o diff e commitar.`,
+      };
+      contextMessages = [repoSystemPrompt, ...contextMessages];
+    }
+
     if (activePlan) {
       const planSystemPrompt = {
         role: 'system',
@@ -380,114 +649,165 @@ export default function App() {
           '⚠️ 4. RISCOS, DESAFIOS & CONTINGÊNCIAS (Possíveis obstáculos e soluções preventivas)\n' +
           '✅ 5. CRITÉRIOS DE SUCESSO & PRIMEIRO PASSO IMEDIATO (A primeira ação para começar hoje mesmo).',
       };
-      contextMessages = [planSystemPrompt as any, ...contextMessages];
+      contextMessages = [planSystemPrompt, ...contextMessages];
     }
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: contextMessages,
-          model: effectiveModel,
-          reasoning_effort: reasoningEffort,
-        }),
-        signal: controller.signal,
-      });
+      let currentMessagesForApi = [...contextMessages];
+      let hasToolCallsToProcess = true;
+      let loopCount = 0;
+      const allEditedFiles: MessageEditedFile[] = [];
 
-      if (!response.ok) {
-        let errMessage = `Erro na requisição (${response.status})`;
-        try {
-          const errData = await response.json();
-          if (errData.error) errMessage = errData.error;
-        } catch {
-          // ignore json parse error
-        }
-        throw new Error(errMessage);
-      }
+      while (hasToolCallsToProcess && loopCount < 5) {
+        loopCount++;
+        hasToolCallsToProcess = false;
 
-      if (!response.body) {
-        throw new Error('Nenhuma resposta retornada pelo servidor.');
-      }
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: currentMessagesForApi,
+            model: effectiveModel,
+            reasoning_effort: reasoningEffort,
+            tools: chatActiveRepo ? GITHUB_TOOLS : undefined,
+          }),
+          signal: controller.signal,
+        });
 
-      // Read SSE stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let assistantText = '';
-      let reasoningText = '';
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        // keep incomplete line in buffer
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data:')) continue;
-
-          const dataStr = trimmed.replace(/^data:\s*/, '');
-          if (dataStr === '[DONE]') {
-            break;
-          }
-
+        if (!response.ok) {
+          let errMessage = `Erro na requisição (${response.status})`;
           try {
-            const parsed = JSON.parse(dataStr);
-            const choice = parsed.choices?.[0];
-            const delta = choice?.delta;
+            const errData = await response.json();
+            if (errData.error) errMessage = errData.error;
+          } catch {}
+          throw new Error(errMessage);
+        }
 
-            if (delta) {
-              // Check if reasoning content was sent
-              if (delta.reasoning_content) {
-                reasoningText += delta.reasoning_content;
-              } else if (delta.reasoning) {
-                reasoningText += delta.reasoning;
-              }
+        if (!response.body) {
+          throw new Error('Nenhuma resposta retornada pelo servidor.');
+        }
 
-              if (delta.content) {
-                assistantText += delta.content;
-              }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let assistantText = '';
+        let reasoningText = '';
+        let buffer = '';
+        const toolCallsAccumulator: Record<number, { id: string; name: string; arguments: string }> = {};
 
-              // Update the message in state
-              setConversations((prev) =>
-                prev.map((c) => {
-                  if (c.id !== currentConvId) return c;
-                  return {
-                    ...c,
-                    messages: c.messages.map((m) =>
-                      m.id === assistantMessageId
-                        ? {
-                            ...m,
-                            content: assistantText,
-                            reasoning: reasoningText || undefined,
-                          }
-                        : m
-                    ),
-                  };
-                })
-              );
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+            const dataStr = trimmed.replace(/^data:\s*/, '');
+            if (dataStr === '[DONE]') {
+              break;
             }
-          } catch {
-            // Non-JSON line or chunk boundary, continue
+
+            try {
+              const parsed = JSON.parse(dataStr);
+              const choice = parsed.choices?.[0];
+              const delta = choice?.delta;
+
+              if (delta) {
+                if (delta.reasoning_content) {
+                  reasoningText += delta.reasoning_content;
+                } else if (delta.reasoning) {
+                  reasoningText += delta.reasoning;
+                }
+
+                if (delta.content) {
+                  assistantText += delta.content;
+                }
+
+                // Accumulate tool calls
+                if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+                  for (const tc of delta.tool_calls) {
+                    const idx = tc.index ?? 0;
+                    if (!toolCallsAccumulator[idx]) {
+                      toolCallsAccumulator[idx] = {
+                        id: tc.id || `call_${Date.now()}_${idx}`,
+                        name: tc.function?.name || '',
+                        arguments: '',
+                      };
+                    }
+                    if (tc.id) toolCallsAccumulator[idx].id = tc.id;
+                    if (tc.function?.name) toolCallsAccumulator[idx].name = tc.function.name;
+                    if (tc.function?.arguments) toolCallsAccumulator[idx].arguments += tc.function.arguments;
+                  }
+                }
+
+                setConversations((prev) =>
+                  prev.map((c) => {
+                    if (c.id !== currentConvId) return c;
+                    return {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantMessageId
+                          ? {
+                              ...m,
+                              content: assistantText,
+                              reasoning: reasoningText || undefined,
+                              editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
+                            }
+                          : m
+                      ),
+                    };
+                  })
+                );
+              }
+            } catch {}
           }
         }
-      }
 
-      // Final check: if thinking tags are inside content, parse them
-      if (!reasoningText && assistantText.includes('<think>')) {
-        const thinkMatch = assistantText.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
-        if (thinkMatch) {
-          reasoningText = thinkMatch[1].trim();
-          assistantText = assistantText.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
+        // Process tool calls if any were returned
+        const detectedCalls = Object.values(toolCallsAccumulator);
+        if (detectedCalls.length > 0 && chatActiveRepo) {
+          hasToolCallsToProcess = true;
+
+          const toolResultMessages: any[] = [];
+          const assistantToolCallsPayload = detectedCalls.map((c) => ({
+            id: c.id,
+            type: 'function',
+            function: {
+              name: c.name,
+              arguments: c.arguments,
+            },
+          }));
+
+          for (const tc of detectedCalls) {
+            let parsedArgs: any = {};
+            try {
+              parsedArgs = JSON.parse(tc.arguments || '{}');
+            } catch {
+              parsedArgs = {};
+            }
+
+            const { result, editedFile } = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
+            if (editedFile) {
+              allEditedFiles.push(editedFile);
+            }
+
+            toolResultMessages.push({
+              role: 'tool',
+              content: result,
+              tool_call_id: tc.id,
+            });
+          }
+
+          // Update assistant message with edited files
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== currentConvId) return c;
@@ -497,23 +817,32 @@ export default function App() {
                   m.id === assistantMessageId
                     ? {
                         ...m,
-                        content: assistantText,
-                        reasoning: reasoningText,
+                        editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
                       }
                     : m
                 ),
               };
             })
           );
+
+          // Prepare payload for next continuation request
+          currentMessagesForApi = [
+            ...currentMessagesForApi,
+            {
+              role: 'assistant',
+              content: assistantText || null,
+              tool_calls: assistantToolCallsPayload,
+            },
+            ...toolResultMessages,
+          ];
         }
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // User explicitly stopped generation
         console.log('Geração interrompida pelo usuário.');
       } else {
         console.error('Chat generation error:', err);
-        setErrorMessage(err.message || 'Falha ao gerar resposta da IA.');
+        setErrorMessage(err.message || 'Falha ao processar resposta da IA.');
       }
     } finally {
       setIsStreaming(false);
@@ -530,9 +859,11 @@ export default function App() {
 
   const starterSuggestions = [
     {
-      category: 'Análise & Conceito',
-      title: 'Explicar arquitetura',
-      desc: 'Como funciona o mecanismo de Attention nos modelos Transformer?',
+      category: 'Source Control & GitHub',
+      title: activeRepo ? `Explorar ${activeRepo.repo}` : 'Conectar Repositório',
+      desc: activeRepo
+        ? `Inspecione arquivos e edite código do repositório ${activeRepo.fullName} diretamente no Source Control.`
+        : 'Conecte seu GitHub para abrir projetos e deixar a IA editar arquivos com revisão visual de diff.',
       model: 'z-ai/glm-5.3' as ModelId,
       planMode: false,
     },
@@ -569,7 +900,28 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Toast notification for AI edits */}
+      {toastNotification && (
+        <div className="fixed bottom-24 right-4 z-50 max-w-sm p-3 rounded-xl bg-[#23211d] border border-[#d97757]/50 shadow-2xl flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 fade-in">
+          <div className="flex items-center gap-2">
+            <FileCode className="w-4 h-4 text-[#d97757] shrink-0" />
+            <span className="text-[#f3efe6] font-medium leading-tight">
+              {toastNotification.message}
+            </span>
+          </div>
+          {toastNotification.onAction && toastNotification.actionLabel && (
+            <button
+              type="button"
+              onClick={toastNotification.onAction}
+              className="px-2.5 py-1 rounded-lg bg-[#d97757] hover:bg-[#c26647] text-white text-[11px] font-medium transition cursor-pointer shrink-0"
+            >
+              {toastNotification.actionLabel}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Sidebar with Chats, Repos and Source Control tabs */}
       <ChatSidebar
         conversations={conversations}
         activeId={activeId}
@@ -580,6 +932,13 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        activeRepo={activeRepo}
+        sidebarTab={sidebarTab}
+        onChangeTab={setSidebarTab}
+        onSelectRepo={handleSelectRepo}
+        onCloseRepo={handleCloseRepo}
+        onChangeBranch={handleChangeBranch}
+        pendingChangesCount={pendingChangesCount}
       />
 
       {/* Main Content Area */}
@@ -590,6 +949,17 @@ export default function App() {
           onNewChat={handleNewChat}
           hasApiKey={hasApiKey}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          activeRepo={activeRepo}
+          pendingChangesCount={pendingChangesCount}
+          onOpenSourceControl={() => {
+            setSidebarTab('source-control');
+            setIsSidebarOpen(true);
+          }}
+          onOpenRepoList={() => {
+            setSidebarTab('repos');
+            setIsSidebarOpen(true);
+          }}
+          onCloseRepo={handleCloseRepo}
         />
 
         {/* Global Error Banner */}
@@ -611,29 +981,30 @@ export default function App() {
         {/* Messages or Empty State */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {!activeConversation || activeConversation.messages.length === 0 ? (
-            /* Claude.ai Empty Landing Screen */
             <div className="h-full flex flex-col items-center justify-center px-4 sm:px-6 max-w-2xl mx-auto text-center py-4 sm:py-8 relative animate-in fade-in duration-300">
-              {/* Claude 8-pointed Asterisk Glyph */}
               <div className="mb-3 sm:mb-4 flex items-center justify-center">
                 <ClaudeLogo className="w-10 h-10 sm:w-12 sm:h-12 text-[#d97757]" />
               </div>
 
-              {/* Editorial Serif Heading like Claude.ai */}
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-normal text-[#f3efe6] tracking-tight mb-2">
                 {getGreeting()}, como posso ajudar?
               </h2>
               <p className="text-xs sm:text-sm text-[#a39d93] max-w-md mb-6 sm:mb-8 px-2 leading-relaxed">
                 Synap com modelos <span className="text-[#f3efe6] font-medium">GLM-5.3</span> e{' '}
-                <span className="text-[#f3efe6] font-medium">Flash</span> via NVIDIA NIM. Raciocínio estendido e Modo Plano integrados.
+                <span className="text-[#f3efe6] font-medium">Flash</span>. Source Control Git e Modo Plano integrados.
               </p>
 
-              {/* Claude Prompt Starters Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 w-full text-left">
                 {starterSuggestions.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
+                      if (item.category.includes('Source Control') && !activeRepo) {
+                        setSidebarTab('repos');
+                        setIsSidebarOpen(true);
+                        return;
+                      }
                       if (item.model) handleSelectModel(item.model);
                       if (item.planMode) {
                         setIsPlanMode(true);
@@ -667,13 +1038,13 @@ export default function App() {
               </div>
             </div>
           ) : (
-            /* Message List */
             <div className="py-4 divide-y divide-[#2d2a24]/60">
               {activeConversation.messages.map((msg, index) => (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
                   isStreaming={isStreaming && index === activeConversation.messages.length - 1}
+                  onViewDiff={handleViewDiffForPath}
                 />
               ))}
               <div ref={messagesEndRef} className="h-4" />
@@ -696,6 +1067,19 @@ export default function App() {
         />
       </div>
 
+      {/* Diff Viewer Modal triggered from chat or direct action */}
+      {diffViewingChange && (
+        <DiffViewer
+          change={diffViewingChange}
+          isOpen={true}
+          onClose={() => setDiffViewingChange(null)}
+          onStage={stageChange}
+          onUnstage={unstageChange}
+          onDiscard={discardChange}
+          onUpdateContent={updateChangeContent}
+        />
+      )}
+
       {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -706,6 +1090,7 @@ export default function App() {
         onClearHistory={handleClearHistory}
         hasApiKey={hasApiKey}
         hasGeminiKey={hasGeminiKey}
+        hasGitHubToken={hasGitHubToken}
       />
     </div>
   );

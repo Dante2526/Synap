@@ -25,11 +25,16 @@ NVIDIA_API_KEY=nvapi-sua-chave-aqui
 
 # 2. Chave Google Gemini (Opcional - para Voz Neural de Estúdio em Português pt-BR)
 GEMINI_API_KEY=AIzaSy-sua-chave-aqui
+
+# 3. GitHub Token (Recomendado para Source Control e edição de repositórios)
+GITHUB_TOKEN=ghp_seu-token-aqui
 ```
 
 #### Onde obter as chaves gratuitas:
 - **`NVIDIA_API_KEY`**: Obtenha gratuitamente com créditos em [build.nvidia.com](https://build.nvidia.com).
 - **`GEMINI_API_KEY`**: Obtenha em segundos sem custo no Google AI Studio em [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+- **`GITHUB_TOKEN`**: Gere em [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta) com escopos "Contents: Read and Write" e "Metadata: Read".
+  > **Nota de Segurança**: Configurar `GITHUB_TOKEN` nas variáveis de ambiente da Vercel ou no `.env.local` é a forma mais segura, pois o token permanece no servidor e nunca precisa ser salvo no navegador.
   > **Nota sobre o TTS Neural**: A `GEMINI_API_KEY` alimenta o modelo neural `gemini-3.8-flash-lite-tts`, que lê o texto em português brasileiro nativo sem sotaque estrangeiro (vozes *Aoede*, *Kore*, *Puck*, *Charon*). Se a chave não for configurada, o aplicativo automaticamente utilizará a síntese local do navegador (Web Speech API).
 
 ### 3. Iniciar o servidor
@@ -66,6 +71,7 @@ O projeto já está 100% pronto para a Vercel com Edge Functions para streaming 
    - Adicione:
      - `NVIDIA_API_KEY`: sua chave da NVIDIA (`nvapi-...`).
      - `GEMINI_API_KEY`: sua chave do Google AI Studio para voz neural pt-BR (`AIzaSy...`).
+     - `GITHUB_TOKEN`: seu token do GitHub com escopos "Contents: Read and Write" + "Metadata: Read" para navegação e Source Control.
 6. Clique no botão **Deploy**.
 7. Pronto! A Vercel vai gerar uma URL pública com HTTPS (ex: `https://meu-chat.vercel.app`) para você usar tanto no PC quanto no celular em qualquer lugar.
 

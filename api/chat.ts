@@ -25,7 +25,7 @@ export default async function handler(req: Request) {
 
   try {
     const body = await req.json();
-    const { messages, model, reasoning_effort } = body;
+    const { messages, model, reasoning_effort, tools } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Nenhuma mensagem informada.' }), {
@@ -49,8 +49,22 @@ export default async function handler(req: Request) {
       );
     }
 
-    // Format messages for OpenAI standard
+    // Format messages for OpenAI standard, supporting tools & tool results
     const formattedMessages = messages.map((m: any) => {
+      if (m.role === 'tool') {
+        return {
+          role: 'tool',
+          content: m.content || '',
+          tool_call_id: m.tool_call_id,
+        };
+      }
+      if (m.role === 'assistant' && m.tool_calls) {
+        return {
+          role: 'assistant',
+          content: m.content || null,
+          tool_calls: m.tool_calls,
+        };
+      }
       if (m.role === 'user' && m.images && Array.isArray(m.images) && m.images.length > 0) {
         return {
           role: 'user',
@@ -69,12 +83,17 @@ export default async function handler(req: Request) {
       };
     });
 
-    const payload = {
+    const payload: any = {
       model: selectedModel,
       messages: formattedMessages,
       stream: true,
       reasoning_effort: selectedEffort,
     };
+
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      payload.tools = tools;
+      payload.tool_choice = 'auto';
+    }
 
     const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',

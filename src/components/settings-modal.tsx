@@ -1,9 +1,34 @@
-import React, { useState } from 'react';
-import { X, Moon, Sun, Volume2, Database, Trash2, Download, KeyRound, AlertTriangle, Check, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Moon,
+  Sun,
+  Volume2,
+  Database,
+  Trash2,
+  Download,
+  KeyRound,
+  AlertTriangle,
+  Check,
+  Sparkles,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  FolderGit2,
+  Loader2,
+  LogOut,
+} from 'lucide-react';
 import { AppSettings, Conversation } from '../lib/types';
 import { exportConversationsToJSON } from '../lib/storage';
 import { NEURAL_VOICES } from '../lib/speech';
 import { ClaudeLogo } from './claude-logo';
+import {
+  getGitHubPat,
+  setGitHubPat,
+  removeGitHubPat,
+  verifyGitHubPat,
+  GitHubUser,
+} from '../lib/github';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +39,7 @@ interface SettingsModalProps {
   onClearHistory: () => Promise<void>;
   hasApiKey: boolean | null;
   hasGeminiKey?: boolean | null;
+  hasGitHubToken?: boolean | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -25,9 +51,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClearHistory,
   hasApiKey,
   hasGeminiKey,
+  hasGitHubToken,
 }) => {
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [isClearing, setIsClearing] = useState(false);
+
+  // GitHub PAT state
+  const [githubPat, setGithubPatInput] = useState('');
+  const [showPat, setShowPat] = useState(false);
+  const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
+  const [isValidatingGithub, setIsValidatingGithub] = useState(false);
+  const [githubError, setGithubError] = useState<string | null>(null);
+  const [githubSuccess, setGithubSuccess] = useState(false);
+
+  // Load existing PAT on mount/open or check server environment variable
+  useEffect(() => {
+    if (isOpen) {
+      const savedPat = getGitHubPat();
+      if (savedPat) {
+        setGithubPatInput(savedPat);
+        verifyGitHubPat(savedPat)
+          .then((user) => setGithubUser(user))
+          .catch(() => {
+            // Fallback to server env if local token failed
+            verifyGitHubPat()
+              .then((user) => setGithubUser(user))
+              .catch(() => setGithubUser(null));
+          });
+      } else {
+        setGithubPatInput('');
+        verifyGitHubPat()
+          .then((user) => setGithubUser(user))
+          .catch(() => {
+            setGithubUser(null);
+          });
+      }
+    }
+  }, [isOpen]);
+
+  const handleConnectGithub = async () => {
+    if (!githubPat.trim()) return;
+    setIsValidatingGithub(true);
+    setGithubError(null);
+    setGithubSuccess(false);
+
+    try {
+      const user = await verifyGitHubPat(githubPat.trim());
+      setGitHubPat(githubPat.trim());
+      setGithubUser(user);
+      setGithubSuccess(true);
+      setTimeout(() => setGithubSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Failed to authenticate GitHub token:', err);
+      setGithubError(
+        err?.message ||
+          'Token inválido ou sem permissões necessárias. Verifique se possui os escopos necessários.'
+      );
+    } finally {
+      setIsValidatingGithub(false);
+    }
+  };
+
+  const handleDisconnectGithub = () => {
+    removeGitHubPat();
+    setGithubPatInput('');
+    setGithubUser(null);
+    setGithubError(null);
+  };
 
   if (!isOpen) return null;
 
@@ -108,6 +198,133 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {hasGeminiKey && ' GEMINI_API_KEY também detectada caso queira alternar para as vozes Aoede ou Puck.'}
               </p>
             </div>
+          </div>
+
+          {/* GitHub Connection Section (Source Control) */}
+          <div className="p-4 rounded-xl border border-[#3b3831] bg-[#1d1b18] text-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-medium text-[#f3efe6]">
+                <FolderGit2 className="w-4 h-4 text-[#d97757]" />
+                <span className="text-xs sm:text-sm">GitHub (Source Control)</span>
+              </div>
+              {githubUser ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  {githubUser.source === 'env' || hasGitHubToken ? 'Vercel / .env Ativo' : 'Conectado'}
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-medium bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+                  Desconectado
+                </span>
+              )}
+            </div>
+
+            <p className="text-[#a39d93] text-[11px] leading-relaxed">
+              Permite que a IA leia repositórios e crie alterações no Source Control. Recomendado: adicione{' '}
+              <code className="text-[#d97757] font-mono px-1 py-0.2 rounded bg-[#24221d] border border-[#3b3831]">
+                GITHUB_TOKEN
+              </code>{' '}
+              nas variáveis de ambiente da Vercel para máxima segurança no servidor, ou insira um token pessoal abaixo.
+            </p>
+
+            {/* Authenticated user profile view */}
+            {githubUser ? (
+              <div className="p-3 rounded-lg bg-[#25231f] border border-[#38352e] flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src={githubUser.avatar_url}
+                    alt={githubUser.login}
+                    className="w-8 h-8 rounded-full border border-[#4d483e]"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-medium text-xs text-[#f3efe6] truncate">
+                      {githubUser.name || githubUser.login}
+                    </div>
+                    <div className="text-[11px] font-mono text-[#8c867a] truncate">
+                      @{githubUser.login}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDisconnectGithub}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 transition cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Desconectar</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="relative">
+                  <input
+                    type={showPat ? 'text' : 'password'}
+                    value={githubPat}
+                    onChange={(e) => setGithubPatInput(e.target.value)}
+                    placeholder="ghp_... ou github_pat_..."
+                    className="w-full pr-10 pl-3 py-2 rounded-lg bg-[#141310] border border-[#3b3831] text-xs text-[#f3efe6] placeholder-[#6b665c] focus:outline-hidden focus:border-[#d97757] font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPat(!showPat)}
+                    aria-label={showPat ? 'Ocultar token' : 'Exibir token'}
+                    className="absolute right-2.5 top-2.5 text-[#8c867a] hover:text-[#f3efe6] transition cursor-pointer"
+                  >
+                    {showPat ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <a
+                    href="https://github.com/settings/tokens?type=beta"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-[#d97757] hover:underline"
+                  >
+                    <span>Criar Fine-grained PAT</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleConnectGithub}
+                    disabled={isValidatingGithub || !githubPat.trim()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#d97757] hover:bg-[#c26647] text-white text-xs font-medium transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                  >
+                    {isValidatingGithub ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Validando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Conectar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[#151412] border border-[#2e2b25] text-[10px] text-[#8c867a] space-y-1">
+                  <p className="font-semibold text-[#a8a398]">Escopos recomendados no GitHub:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[#7a7469]">
+                    <li><strong className="text-[#c4bfb6]">Contents:</strong> Read and Write (leitura de arquivos e commits)</li>
+                    <li><strong className="text-[#c4bfb6]">Metadata:</strong> Read (leitura de repositórios)</li>
+                  </ul>
+                </div>
+
+                {githubError && (
+                  <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/40 text-[11px] text-rose-300">
+                    {githubError}
+                  </div>
+                )}
+                {githubSuccess && (
+                  <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/40 text-[11px] text-emerald-300">
+                    GitHub conectado com sucesso!
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Grouped Settings Card - Claude Style */}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronDown, ChevronRight, Copy, Check, FileText, ListTodo } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, FileText, ListTodo, FileCode, ExternalLink } from 'lucide-react';
 import { Message } from '../lib/types';
 import { formatFileSize } from '../lib/utils';
 import { CodeBlock } from './code-block';
@@ -11,9 +11,14 @@ import { ClaudeLogo } from './claude-logo';
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  onViewDiff?: (path: string) => void;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming = false }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({
+  message,
+  isStreaming = false,
+  onViewDiff,
+}) => {
   const isUser = message.role === 'user';
   const [showReasoning, setShowReasoning] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -168,6 +173,56 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming =
                   {thinkingContent}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Edited Files Cards (VS Code style Source Control diff shortcut) */}
+          {message.editedFiles && message.editedFiles.length > 0 && (
+            <div className="w-full mb-3 space-y-2">
+              {message.editedFiles.map((file, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 rounded-xl bg-[#23201c] border border-[#3e392f] flex items-center justify-between gap-3 text-xs shadow-xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-[#2e2a22] flex items-center justify-center text-[#d97757] shrink-0">
+                      <FileCode className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#f3efe6] font-mono font-medium truncate">
+                          {file.path}
+                        </span>
+                        <span
+                          className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                            file.type === 'modified'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : file.type === 'added'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          }`}
+                        >
+                          {file.type === 'modified' ? 'Editado' : file.type === 'added' ? 'Criado' : 'Removido'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[#8c867a] mt-0.5">
+                        Alteração pronta para revisão no Source Control
+                      </p>
+                    </div>
+                  </div>
+
+                  {onViewDiff && (
+                    <button
+                      type="button"
+                      onClick={() => onViewDiff(file.path)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2f2b23] hover:bg-[#3d372c] text-[#f3efe6] text-xs font-medium border border-[#484133] transition cursor-pointer shrink-0 shadow-xs"
+                    >
+                      <span>Ver diff</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-[#d97757]" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
