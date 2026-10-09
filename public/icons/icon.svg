@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b" />
+      <stop offset="100%" stop-color="#09090b" />
+    </linearGradient>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="50%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#7e22ce" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <!-- Background with rounded corners -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <rect width="504" height="504" x="4" y="4" rx="124" fill="none" stroke="#a855f7" stroke-width="6" stroke-opacity="0.3" />
+  
+  <!-- Outer Glow Ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="url(#purpleGrad)" stroke-width="4" stroke-opacity="0.25" filter="url(#glow)"/>
+  
+  <!-- Chat Bubble & Sparkles Icon -->
+  <g transform="translate(106, 106)">
+    <!-- Main chat bubble -->
+    <path d="M40 50 C40 25 60 5 85 5 L215 5 C240 5 260 25 260 50 L260 170 C260 195 240 215 215 215 L120 215 L60 270 L60 215 C40 215 40 195 40 170 Z" 
+          fill="url(#purpleGrad)" />
+    <!-- AI Brain / Sparkles inside -->
+    <path d="M150 65 L158 95 L188 103 L158 111 L150 141 L142 111 L112 103 L142 95 Z" fill="#ffffff" />
+    <path d="M95 130 L100 148 L118 153 L100 158 L95 176 L90 158 L72 153 L90 148 Z" fill="#f3e8ff" opacity="0.9" />
+    <path d="M205 130 L209 144 L223 148 L209 152 L205 166 L201 152 L187 148 L201 144 Z" fill="#f3e8ff" opacity="0.9" />
+  </g>
+</svg>
