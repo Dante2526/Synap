@@ -185,7 +185,7 @@ const TERMINAL_TOOL = {
   function: {
     name: 'run_terminal_command',
     description:
-      'Executa comandos no terminal do sistema (ex: npm test, git status, git log, ls, cat, pwd, node -v). Retorna stdout, stderr e exitCode.',
+      'Executa comandos no Emulador de Terminal Git (ex: git status, git log, git branch, git checkout, git commit, git diff, ls, cat, pwd, echo, clear). Traduz e executa operações reais no repositório GitHub ativo.',
     parameters: {
       type: 'object',
       properties: {
@@ -1067,7 +1067,7 @@ function AppContent() {
         'Você é o assistente Synap com ferramentas avançadas integradas.\n' +
         'Regras estritas para ferramentas:\n' +
         '1. Geração de Imagens: Quando o usuário pedir qualquer imagem ou ilustração, execute OBRIGATORIAMENTE a ferramenta `generate_image`. NUNCA invente, presuma ou escreva links de imagens ou sintaxe markdown como `![...](https://...)` no seu texto antes da execução da ferramenta.\n' +
-        '2. Terminal do Sistema: Você TEM ACESSO TOTAL à ferramenta `run_terminal_command` para executar comandos reais no terminal do sistema (ex: `ls`, `git status`, `git log`, `pwd`, `node -v`, `npm test`, `npm run lint`, `cat <arquivo>`, etc.). Sempre que o usuário pedir para rodar qualquer comando no terminal, verificar o ambiente, inspecionar o projeto, diagnosticar erros ou testar o código, EXECUTE a ferramenta `run_terminal_command` imediatamente e relate a saída.\n' +
+        '2. Emulador de Terminal Git: Você tem acesso à ferramenta `run_terminal_command` para executar comandos no Emulador de Terminal Git (ex: `git status`, `git log`, `git branch`, `git checkout`, `git commit`, `git diff`, `ls`, `cat <arquivo>`, `pwd`, `grep`, `echo`, etc.). Os comandos operam no repositório GitHub ativo. Sempre que o usuário pedir para executar comandos Git/Unix ou inspecionar o estado do repositório via terminal, EXECUTE a ferramenta `run_terminal_command` e relate a saída.\n' +
         '3. Busca Web: Use `web_search` para consultar informações e fontes na internet.',
     };
     contextMessages = [baseSystemPrompt, ...contextMessages];
@@ -1391,46 +1391,6 @@ function AppContent() {
     return 'Boa noite';
   };
 
-  const starterSuggestions = [
-    {
-      category: 'Source Control & GitHub',
-      title: activeRepo ? `Explorar ${activeRepo.repo}` : 'Conectar Repositório',
-      desc: activeRepo
-        ? `Inspecione arquivos e edite código do repositório ${activeRepo.fullName} diretamente no Source Control.`
-        : 'Conecte seu GitHub para abrir projetos e deixar a IA editar arquivos com revisão visual de diff.',
-      model: 'z-ai/glm-5.3' as ModelId,
-      planMode: false,
-    },
-    {
-      category: 'Código & Algoritmo',
-      title: 'Algoritmo TypeScript',
-      desc: 'Escreva uma função debounce com cancelamento e tipagem estrita.',
-      model: 'z-ai/glm-5.3' as ModelId,
-      planMode: false,
-    },
-    {
-      category: 'Visão & Diagnóstico',
-      title: 'Análise de Imagens',
-      desc: 'Use o modelo Flash para anexar capturas de tela e obter diagnósticos.',
-      model: 'z-ai/glm-5.3-flash' as ModelId,
-      planMode: false,
-    },
-    {
-      category: 'Terminal & Shell',
-      title: 'Terminal do Sistema',
-      desc: 'Peça para a IA executar comandos no bash (git status, ls -la, node -v) ou abra o terminal.',
-      model: 'z-ai/glm-5.3' as ModelId,
-      planMode: false,
-    },
-    {
-      category: 'Estratégia & Roteiro',
-      title: 'Criar Plano Estruturado',
-      desc: 'Ative a Função Plan para gerar um roteiro de ação com cronograma e fases.',
-      model: 'z-ai/glm-5.3' as ModelId,
-      planMode: true,
-    },
-  ];
-
   return (
     <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-[#1b1a17] text-[#f3efe6] overflow-hidden font-sans">
       {/* Offline Alert Bar */}
@@ -1536,53 +1496,10 @@ function AppContent() {
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-normal text-[#f3efe6] tracking-tight mb-2">
                 {getGreeting()}, como posso ajudar?
               </h2>
-              <p className="text-xs sm:text-sm text-[#a39d93] max-w-md mb-6 sm:mb-8 px-2 leading-relaxed">
+              <p className="text-xs sm:text-sm text-[#a39d93] max-w-md px-2 leading-relaxed">
                 Synap com modelos <span className="text-[#f3efe6] font-medium">GLM-5.3</span> e{' '}
                 <span className="text-[#f3efe6] font-medium">Flash</span>. Source Control Git e Modo Plano integrados.
               </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 w-full text-left">
-                {starterSuggestions.map((item, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      if (item.category.includes('Source Control') && !activeRepo) {
-                        setSidebarTab('repos');
-                        setIsSidebarOpen(true);
-                        return;
-                      }
-                      if (item.model) handleSelectModel(item.model);
-                      if (item.planMode) {
-                        setIsPlanMode(true);
-                        if (reasoningEffort === 'low') {
-                          setReasoningEffort('high');
-                          localStorage.setItem(REASONING_STORAGE_KEY, 'high');
-                        }
-                      }
-                      handleSendMessage(item.desc, [], [], item.planMode);
-                    }}
-                    className="p-3.5 sm:p-4 rounded-xl border border-[#38352e] bg-[#24221e] hover:bg-[#2c2925] hover:border-[#4d483e] text-[#d8d3c9] transition-all group cursor-pointer text-left shadow-xs flex flex-col justify-between active:scale-[0.99]"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-medium text-[#d97757]">
-                        {item.category}
-                      </span>
-                      <span className="text-[10px] font-mono text-[#736e65]">
-                        {item.model === 'z-ai/glm-5.3-flash' ? 'Flash' : 'GLM-5.3'}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="text-xs sm:text-sm font-medium text-[#f3efe6] group-hover:text-white mb-1">
-                        {item.title}
-                      </div>
-                      <div className="text-[11px] sm:text-xs text-[#a39d93] line-clamp-2 leading-relaxed">
-                        {item.desc}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
             </div>
           ) : (
             <div className="py-4 divide-y divide-[#2d2a24]/60">

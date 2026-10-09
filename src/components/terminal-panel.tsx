@@ -33,6 +33,112 @@ interface TerminalPanelProps {
   isRunning?: boolean;
 }
 
+const ANSI_COLOR_MAP: Record<number, string> = {
+  30: '#6b7280', // black / gray
+  31: '#f87171', // red
+  32: '#4ade80', // green
+  33: '#facc15', // yellow
+  34: '#38bdf8', // blue
+  35: '#c084fc', // magenta
+  36: '#22d3ee', // cyan
+  37: '#e5e7eb', // white
+  39: 'inherit', // default
+  90: '#9ca3af', // bright black
+  91: '#fca5a5', // bright red
+  92: '#86efac', // bright green
+  93: '#fde047', // bright yellow
+  94: '#7dd3fc', // bright blue
+  95: '#d8b4fe', // bright magenta
+  96: '#67e8f9', // bright cyan
+  97: '#ffffff', // bright white
+};
+
+interface AnsiSpan {
+  text: string;
+  color?: string;
+  fontWeight?: string;
+  fontStyle?: string;
+  textDecoration?: string;
+}
+
+export const AnsiText: React.FC<{ text: string }> = ({ text }) => {
+  if (!text) return null;
+
+  const ansiRegex = /\x1b\[[0-9;]*m|\u001b\[[0-9;]*m/g;
+  const spans: AnsiSpan[] = [];
+  let currentColor: string | undefined = undefined;
+  let currentBold = false;
+  let currentItalic = false;
+  let currentUnderline = false;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = ansiRegex.exec(text)) !== null) {
+    const rawText = text.substring(lastIndex, match.index);
+    if (rawText) {
+      spans.push({
+        text: rawText,
+        color: currentColor,
+        fontWeight: currentBold ? 'bold' : undefined,
+        fontStyle: currentItalic ? 'italic' : undefined,
+        textDecoration: currentUnderline ? 'underline' : undefined,
+      });
+    }
+
+    const codeString = match[0].replace(/[\x1b\u001b]\[|m/g, '');
+    const codes = codeString ? codeString.split(';').map(Number) : [0];
+
+    for (const code of codes) {
+      if (code === 0) {
+        currentColor = undefined;
+        currentBold = false;
+        currentItalic = false;
+        currentUnderline = false;
+      } else if (code === 1) {
+        currentBold = true;
+      } else if (code === 3) {
+        currentItalic = true;
+      } else if (code === 4) {
+        currentUnderline = true;
+      } else if (ANSI_COLOR_MAP[code]) {
+        currentColor = ANSI_COLOR_MAP[code];
+      }
+    }
+
+    lastIndex = ansiRegex.lastIndex;
+  }
+
+  const remainingText = text.substring(lastIndex);
+  if (remainingText) {
+    spans.push({
+      text: remainingText,
+      color: currentColor,
+      fontWeight: currentBold ? 'bold' : undefined,
+      fontStyle: currentItalic ? 'italic' : undefined,
+      textDecoration: currentUnderline ? 'underline' : undefined,
+    });
+  }
+
+  return (
+    <>
+      {spans.map((span, i) => (
+        <span
+          key={i}
+          style={{
+            color: span.color,
+            fontWeight: span.fontWeight,
+            fontStyle: span.fontStyle,
+            textDecoration: span.textDecoration,
+          }}
+        >
+          {span.text}
+        </span>
+      ))}
+    </>
+  );
+};
+
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   isOpen,
   onClose,
@@ -218,15 +324,15 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
 
               {/* Stdout */}
               {entry.stdout && (
-                <pre className="text-[#d8d3c9] bg-[#171612] p-2.5 rounded-lg border border-[#27251f] overflow-x-auto whitespace-pre-wrap break-words max-h-64">
-                  {entry.stdout}
+                <pre className="text-[#d8d3c9] bg-[#171612] p-2.5 rounded-lg border border-[#27251f] overflow-x-auto whitespace-pre-wrap break-words max-h-64 font-mono">
+                  <AnsiText text={entry.stdout} />
                 </pre>
               )}
 
               {/* Stderr */}
               {entry.stderr && (
-                <pre className="text-rose-300 bg-rose-950/20 p-2.5 rounded-lg border border-rose-900/40 overflow-x-auto whitespace-pre-wrap break-words max-h-48">
-                  {entry.stderr}
+                <pre className="text-rose-300 bg-rose-950/20 p-2.5 rounded-lg border border-rose-900/40 overflow-x-auto whitespace-pre-wrap break-words max-h-48 font-mono">
+                  <AnsiText text={entry.stderr} />
                 </pre>
               )}
             </div>

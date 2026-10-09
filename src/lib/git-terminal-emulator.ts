@@ -532,7 +532,7 @@ Comandos suportados no Synap:
             const success = await context.onCommitChanges(msg);
             if (success) {
               return makeResult(
-                `[${branch} (root-commit)] ${msg}\n ${repoChanges.length} file(s) changed, atomic commit pushed directly to GitHub.`
+                `[${branch} (root-commit)] ${msg}\n ${repoChanges.length} file(s) changed, atomic commit pushed directly to GitHub.\n\n\x1b[33mNota: Isto commitou TODAS as mudanças pendentes (${repoChanges.length} arquivo(s)). Use o Source Control panel para staging seletivo.\x1b[0m`
               );
             } else {
               return makeResult('', 'fatal: falha ao realizar commit no GitHub.', 1);
@@ -562,6 +562,106 @@ Comandos suportados no Synap:
         );
       }
 
+interface DiffOp {
+  type: 'same' | 'add' | 'remove';
+  line: string;
+}
+
+function computeLineDiff(oldLines: string[], newLines: string[]): DiffOp[] {
+  const m = oldLines.length;
+  const n = newLines.length;
+
+  if (m * n > 250000) {
+    const result: DiffOp[] = [];
+    let i = 0, j = 0;
+    while (i < m || j < n) {
+      if (i < m && j < n && oldLines[i] === newLines[j]) {
+        result.push({ type: 'same', line: oldLines[i] });
+        i++; j++;
+      } else {
+        if (i < m) { result.push({ type: 'remove', line: oldLines[i] }); i++; }
+        if (j < n) { result.push({ type: 'add', line: newLines[j] }); j++; }
+      }
+    }
+    return result;
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const ops: DiffOp[] = [];
+  let i = m, j = n;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      ops.unshift({ type: 'same', line: oldLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      ops.unshift({ type: 'add', line: newLines[j - 1] });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      ops.unshift({ type: 'remove', line: oldLines[i - 1] });
+      i--;
+    }
+  }
+
+  return ops;
+}
+
+function generateUnifiedDiff(c: PendingChange): string {
+  const path = c.path;
+  const oldText = c.originalContent || '';
+  const newText = c.newContent || '';
+
+  const oldLines = oldText ? oldText.split('\n') : [];
+  const newLines = newText ? newText.split('\n') : [];
+
+  let header = `diff --git a/${path} b/${path}\n`;
+  if (c.type === 'added') {
+    header += `new file mode 100644\n--- /dev/null\n+++ b/${path}\n`;
+  } else if (c.type === 'deleted') {
+    header += `deleted file mode 100644\n--- a/${path}\n+++ /dev/null\n`;
+  } else {
+    header += `--- a/${path}\n+++ b/${path}\n`;
+  }
+
+  const diffLines: string[] = [];
+
+  if (c.type === 'added') {
+    for (const line of newLines) {
+      diffLines.push(`\x1b[32m+${line}\x1b[0m`);
+    }
+  } else if (c.type === 'deleted') {
+    for (const line of oldLines) {
+      diffLines.push(`\x1b[31m-${line}\x1b[0m`);
+    }
+  } else {
+    const diff = computeLineDiff(oldLines, newLines);
+    for (const item of diff) {
+      if (item.type === 'add') {
+        diffLines.push(`\x1b[32m+${item.line}\x1b[0m`);
+      } else if (item.type === 'remove') {
+        diffLines.push(`\x1b[31m-${item.line}\x1b[0m`);
+      } else {
+        diffLines.push(` ${item.line}`);
+      }
+    }
+  }
+
+  const chunkHeader = `@@ -1,${oldLines.length || 1} +1,${newLines.length || 1} @@`;
+  return `${header}${chunkHeader}\n${diffLines.join('\n')}`;
+}
+
       // GIT DIFF
       if (subCommand === 'diff') {
         const repoFullName = activeRepo?.fullName || `${owner}/${repo}`;
@@ -573,11 +673,8 @@ Comandos suportados no Synap:
           return makeResult('');
         }
 
-        const diffLines = repoChanges.map(
-          (c) =>
-            `diff --git a/${c.path} b/${c.path}\n--- a/${c.path}\n+++ b/${c.path}\n@@ -1,3 +1,5 @@\n+ [Alterações no arquivo ${c.path}]`
-        );
-        return makeResult(diffLines.join('\n\n'));
+        const diffs = repoChanges.map((c) => generateUnifiedDiff(c));
+        return makeResult(diffs.join('\n\n'));
       }
 
       return makeResult(

@@ -10,7 +10,6 @@ import ttsHandler from './api/tts';
 import githubHandler from './api/github';
 import searchHandler from './api/search';
 import imageHandler from './api/image';
-import terminalHandler from './api/terminal';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -103,7 +102,6 @@ app.all('/api/tts', adaptWebHandler(ttsHandler));
 app.all('/api/github', adaptWebHandler(githubHandler));
 app.all('/api/search', adaptWebHandler(searchHandler));
 app.all('/api/image', adaptWebHandler(imageHandler));
-app.all('/api/terminal', adaptWebHandler(terminalHandler));
 
 // Setup Vite middleware in dev or serve static files in production
 async function startServer() {
