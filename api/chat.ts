@@ -61,7 +61,7 @@ export default async function handler(req: Request) {
       if (m.role === 'assistant' && m.tool_calls) {
         return {
           role: 'assistant',
-          content: m.content || null,
+          content: m.content || '',
           tool_calls: m.tool_calls,
         };
       }
@@ -83,19 +83,25 @@ export default async function handler(req: Request) {
       };
     });
 
-    const payload: any = {
-      model: selectedModel,
-      messages: formattedMessages,
-      stream: true,
-      reasoning_effort: selectedEffort,
+    const createPayload = (includeReasoning = true, includeTools = true) => {
+      const p: any = {
+        model: selectedModel,
+        messages: formattedMessages,
+        stream: true,
+      };
+      if (includeReasoning && selectedEffort && selectedEffort !== 'none' && selectedEffort !== 'default') {
+        p.reasoning_effort = selectedEffort;
+      }
+      if (includeTools && tools && Array.isArray(tools) && tools.length > 0) {
+        p.tools = tools;
+        p.tool_choice = 'auto';
+      }
+      return p;
     };
 
-    if (tools && Array.isArray(tools) && tools.length > 0) {
-      payload.tools = tools;
-      payload.tool_choice = 'auto';
-    }
+    let payload = createPayload(true, true);
 
-    const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    let nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -103,6 +109,32 @@ export default async function handler(req: Request) {
       },
       body: JSON.stringify(payload),
     });
+
+    // Fallback 1: se der erro e reasoning_effort estava incluído, tenta sem reasoning_effort
+    if (!nvidiaRes.ok && payload.reasoning_effort) {
+      payload = createPayload(false, true);
+      nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    // Fallback 2: se der erro com ferramentas, tenta sem ferramentas
+    if (!nvidiaRes.ok && payload.tools) {
+      payload = createPayload(false, false);
+      nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    }
 
     if (!nvidiaRes.ok) {
       const errText = await nvidiaRes.text();

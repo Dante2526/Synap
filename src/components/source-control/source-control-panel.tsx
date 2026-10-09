@@ -16,7 +16,6 @@ import {
 import { PendingChange, ActiveRepoState } from '../../lib/types';
 import { usePendingChanges } from '../../lib/pending-changes';
 import { commitStagedChanges } from '../../lib/github-commit';
-import { getOctokit } from '../../lib/github';
 import { DiffViewer } from './diff-viewer';
 
 interface SourceControlPanelProps {

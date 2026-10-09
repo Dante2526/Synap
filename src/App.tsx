@@ -10,6 +10,8 @@ import {
   ActiveRepoState,
   PendingChange,
   MessageEditedFile,
+  MessageToolCall,
+  ChangeType,
 } from './lib/types';
 import {
   loadConversations,
@@ -28,7 +30,7 @@ import { SettingsModal } from './components/settings-modal';
 import { ClaudeLogo } from './components/claude-logo';
 import { PendingChangesProvider, usePendingChanges } from './lib/pending-changes';
 import { DiffViewer } from './components/source-control/diff-viewer';
-import { getOctokit, fetchFileContent, fetchRepoContents, searchCode } from './lib/github';
+import { fetchFileContent, fetchRepoContents, searchCode } from './lib/github';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -91,14 +93,52 @@ const GITHUB_TOOLS = [
           type: {
             type: 'string',
             enum: ['modified', 'added', 'deleted'],
-            description: 'Tipo de modificação: modified, added ou deleted',
+            description: 'Tipo de modificação: modified (padrão), added ou deleted',
           },
         },
-        required: ['path', 'content', 'type'],
+        required: ['path', 'content'],
       },
     },
   },
 ];
+
+const WEB_SEARCH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description: 'Pesquisa informações atualizadas, documentações, referências e fontes na Internet',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Termo de pesquisa na internet' },
+      },
+      required: ['query'],
+    },
+  },
+};
+
+const IMAGE_GEN_TOOL = {
+  type: 'function',
+  function: {
+    name: 'generate_image',
+    description: 'Gera uma imagem artística, fotografia ou ilustração a partir de um prompt descritivo',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Descrição detalhada da imagem a ser gerada' },
+        aspect_ratio: {
+          type: 'string',
+          enum: ['1:1', '16:9', '9:16', '4:3'],
+          description: 'Proporção da imagem (padrão 1:1)',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
+};
+
+const DEFAULT_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL];
+const ALL_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL, ...GITHUB_TOOLS];
 
 export default function App() {
   return (
@@ -396,22 +436,67 @@ function AppContent() {
     setIsStreaming(false);
   };
 
-  // Helper to execute client-side GitHub tools
+  // Helper to execute client-side GitHub and web tools
   const executeGitHubTool = async (
     name: string,
     args: any,
     currentRepo: ActiveRepoState | null
   ): Promise<{ result: string; editedFile?: MessageEditedFile }> => {
+    if (name === 'web_search' || name === 'search_web') {
+      try {
+        const query = args.query || args.q || '';
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        if (!res.ok) throw new Error(`Falha na busca web (${res.status})`);
+        const searchResults = await res.json();
+        return { result: JSON.stringify(searchResults) };
+      } catch (err: any) {
+        return { result: JSON.stringify({ error: err?.message || `Erro ao pesquisar ${args.query}` }) };
+      }
+    }
+
+    if (name === 'generate_image') {
+      try {
+        const prompt = args.prompt || '';
+        const aspect_ratio = args.aspect_ratio || '1:1';
+        const res = await fetch('/api/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, aspect_ratio }),
+        });
+        if (!res.ok) throw new Error(`Falha ao gerar imagem (${res.status})`);
+        const imgData = await res.json();
+        return {
+          result: JSON.stringify({
+            status: 'success',
+            url: imgData.url,
+            prompt: imgData.prompt,
+            markdown: imgData.markdown,
+            instruction:
+              `A imagem já foi pré-renderizada e está disponível no servidor. Apresente-a usando exatamente: ${imgData.markdown} sem quebrar linha entre [ e (.`,
+          }),
+        };
+      } catch (err: any) {
+        return { result: JSON.stringify({ error: err?.message || 'Erro ao gerar imagem' }) };
+      }
+    }
+
     if (!currentRepo) {
       return {
         result: JSON.stringify({
-          error: 'Nenhum repositório GitHub está vinculado a esta conversa. Acesso negado.',
+          error: 'Nenhum repositório GitHub está vinculado a esta conversa. Selecione um repositório no menu superior.',
         }),
       };
     }
 
     if (name === 'edit_file') {
-      const { path, content, type } = args;
+      const { path, content = '', type = 'modified' } = args;
+
+      if (!path) {
+        return {
+          result: JSON.stringify({ error: 'Parâmetro path é obrigatório para edit_file.' }),
+        };
+      }
+
       let originalContent: string | undefined = undefined;
 
       // Try fetching original file content if modifying or deleting
@@ -433,7 +518,7 @@ function AppContent() {
         path,
         repo: currentRepo.fullName,
         branch: currentRepo.branch,
-        type: type || 'modified',
+        type: (type as ChangeType) || 'modified',
         originalContent,
         newContent: content || '',
       });
@@ -453,7 +538,7 @@ function AppContent() {
 
       const editedFile: MessageEditedFile = {
         path,
-        type: type || 'modified',
+        type: (type as ChangeType) || 'modified',
       };
 
       return {
@@ -499,7 +584,9 @@ function AppContent() {
       try {
         const items = await searchCode(
           null,
-          `${args.query} repo:${currentRepo.fullName}`
+          args.query,
+          currentRepo.owner,
+          currentRepo.repo
         );
         return {
           result: JSON.stringify(items),
@@ -624,7 +711,7 @@ function AppContent() {
     });
 
     // Injetar contexto de repositório apenas se vinculado a esta conversa
-    const chatActiveRepo = currentConv?.activeRepo !== undefined ? currentConv.activeRepo : activeRepo;
+    const chatActiveRepo = activeRepo || (currentConv?.activeRepo ? currentConv.activeRepo : null);
     if (chatActiveRepo) {
       const repoSystemPrompt = {
         role: 'system',
@@ -660,6 +747,9 @@ function AppContent() {
       let hasToolCallsToProcess = true;
       let loopCount = 0;
       const allEditedFiles: MessageEditedFile[] = [];
+      const allToolCalls: MessageToolCall[] = [];
+      let accumulatedAssistantText = '';
+      let accumulatedReasoningText = '';
 
       while (hasToolCallsToProcess && loopCount < 5) {
         loopCount++;
@@ -674,7 +764,7 @@ function AppContent() {
             messages: currentMessagesForApi,
             model: effectiveModel,
             reasoning_effort: reasoningEffort,
-            tools: chatActiveRepo ? GITHUB_TOOLS : undefined,
+            tools: chatActiveRepo ? ALL_CHAT_TOOLS : DEFAULT_CHAT_TOOLS,
           }),
           signal: controller.signal,
         });
@@ -694,8 +784,8 @@ function AppContent() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
-        let assistantText = '';
-        let reasoningText = '';
+        let iterationText = '';
+        let iterationReasoning = '';
         let buffer = '';
         const toolCallsAccumulator: Record<number, { id: string; name: string; arguments: string }> = {};
 
@@ -719,20 +809,20 @@ function AppContent() {
             try {
               const parsed = JSON.parse(dataStr);
               const choice = parsed.choices?.[0];
-              const delta = choice?.delta;
+              const delta = choice?.delta || choice?.message;
 
               if (delta) {
                 if (delta.reasoning_content) {
-                  reasoningText += delta.reasoning_content;
+                  iterationReasoning += delta.reasoning_content;
                 } else if (delta.reasoning) {
-                  reasoningText += delta.reasoning;
+                  iterationReasoning += delta.reasoning;
                 }
 
                 if (delta.content) {
-                  assistantText += delta.content;
+                  iterationText += delta.content;
                 }
 
-                // Accumulate tool calls
+                // Accumulate tool calls (OpenAI standard format)
                 if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
                   for (const tc of delta.tool_calls) {
                     const idx = tc.index ?? 0;
@@ -747,7 +837,26 @@ function AppContent() {
                     if (tc.function?.name) toolCallsAccumulator[idx].name = tc.function.name;
                     if (tc.function?.arguments) toolCallsAccumulator[idx].arguments += tc.function.arguments;
                   }
+                } else if (delta.function_call) {
+                  // Legacy function_call fallback
+                  if (!toolCallsAccumulator[0]) {
+                    toolCallsAccumulator[0] = {
+                      id: `call_${Date.now()}_0`,
+                      name: delta.function_call.name || '',
+                      arguments: '',
+                    };
+                  }
+                  if (delta.function_call.name) toolCallsAccumulator[0].name = delta.function_call.name;
+                  if (delta.function_call.arguments) toolCallsAccumulator[0].arguments += delta.function_call.arguments;
                 }
+
+                const currentCombinedText = accumulatedAssistantText
+                  ? `${accumulatedAssistantText}\n\n${iterationText}`
+                  : iterationText;
+
+                const currentCombinedReasoning = accumulatedReasoningText
+                  ? `${accumulatedReasoningText}\n\n${iterationReasoning}`
+                  : iterationReasoning;
 
                 setConversations((prev) =>
                   prev.map((c) => {
@@ -758,9 +867,10 @@ function AppContent() {
                         m.id === assistantMessageId
                           ? {
                               ...m,
-                              content: assistantText,
-                              reasoning: reasoningText || undefined,
+                              content: currentCombinedText,
+                              reasoning: currentCombinedReasoning || undefined,
                               editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
+                              toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
                             }
                           : m
                       ),
@@ -772,10 +882,50 @@ function AppContent() {
           }
         }
 
+        // Store accumulated content across iterations
+        if (iterationText) {
+          accumulatedAssistantText = accumulatedAssistantText
+            ? `${accumulatedAssistantText}\n\n${iterationText}`
+            : iterationText;
+        }
+        if (iterationReasoning) {
+          accumulatedReasoningText = accumulatedReasoningText
+            ? `${accumulatedReasoningText}\n\n${iterationReasoning}`
+            : iterationReasoning;
+        }
+
         // Process tool calls if any were returned
-        const detectedCalls = Object.values(toolCallsAccumulator);
-        if (detectedCalls.length > 0 && chatActiveRepo) {
+        const detectedCalls = Object.values(toolCallsAccumulator).filter((c) => c && c.name);
+        if (detectedCalls.length > 0) {
           hasToolCallsToProcess = true;
+
+          // Register tool calls in running state
+          for (const tc of detectedCalls) {
+            allToolCalls.push({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+              status: 'running',
+            });
+          }
+
+          // Show running tool indicator immediately in chat
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== currentConvId) return c;
+              return {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        toolCalls: [...allToolCalls],
+                      }
+                    : m
+                ),
+              };
+            })
+          );
 
           const toolResultMessages: any[] = [];
           const assistantToolCallsPayload = detectedCalls.map((c) => ({
@@ -795,7 +945,28 @@ function AppContent() {
               parsedArgs = {};
             }
 
-            const { result, editedFile } = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
+            let result = '';
+            let editedFile: MessageEditedFile | undefined = undefined;
+
+            try {
+              const execution = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
+              result = execution.result;
+              editedFile = execution.editedFile;
+
+              const callEntry = allToolCalls.find((x) => x.id === tc.id);
+              if (callEntry) {
+                callEntry.status = 'completed';
+                callEntry.result = result;
+              }
+            } catch (toolErr: any) {
+              result = JSON.stringify({ error: toolErr?.message || 'Falha ao executar ferramenta.' });
+              const callEntry = allToolCalls.find((x) => x.id === tc.id);
+              if (callEntry) {
+                callEntry.status = 'error';
+                callEntry.result = result;
+              }
+            }
+
             if (editedFile) {
               allEditedFiles.push(editedFile);
             }
@@ -807,7 +978,7 @@ function AppContent() {
             });
           }
 
-          // Update assistant message with edited files
+          // Update assistant message with completed tool calls & edited files
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== currentConvId) return c;
@@ -818,6 +989,7 @@ function AppContent() {
                     ? {
                         ...m,
                         editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
+                        toolCalls: [...allToolCalls],
                       }
                     : m
                 ),
@@ -830,7 +1002,7 @@ function AppContent() {
             ...currentMessagesForApi,
             {
               role: 'assistant',
-              content: assistantText || null,
+              content: iterationText || '',
               tool_calls: assistantToolCallsPayload,
             },
             ...toolResultMessages,

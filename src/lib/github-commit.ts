@@ -1,4 +1,3 @@
-import { Octokit } from 'octokit';
 import { PendingChange } from './types';
 import { callGitHubApi } from './github';
 
@@ -13,7 +12,7 @@ export interface CommitResult {
  * or client-provided Bearer token.
  */
 export async function commitStagedChanges(
-  _octokit: Octokit | null | undefined,
+  _unusedToken: any,
   owner: string,
   repo: string,
   branch: string,

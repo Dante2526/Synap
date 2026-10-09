@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ThinkingOrb } from 'thinking-orbs';
 import {
   FolderGit2,
   Search,
@@ -12,7 +13,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { GitHubRepo, ActiveRepoState } from '../../lib/types';
-import { getOctokit, fetchUserRepos } from '../../lib/github';
+import { fetchUserRepos } from '../../lib/github';
 import { formatDate } from '../../lib/utils';
 
 interface RepoListProps {
@@ -129,9 +130,18 @@ export const RepoList: React.FC<RepoListProps> = ({
           {/* Repo list content */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-12 space-y-2 text-[#8c867a]">
-                <Loader2 className="w-5 h-5 animate-spin text-[#d97757]" />
-                <span className="text-xs">Carregando seus repositórios...</span>
+              <div className="flex flex-col items-center justify-center py-12 space-y-3 text-[#8c867a]">
+                <ThinkingOrb
+                  state="connecting"
+                  size={64}
+                  theme="dark"
+                  speed={1.5}
+                  aria-label="Conectando…"
+                />
+                <div className="flex flex-col items-center text-center">
+                  <span className="text-xs text-[#c4bfb6] font-medium">Conectando aos repositórios…</span>
+                  <span className="text-[10px] text-[#736e65] mt-0.5">Consultando API do GitHub</span>
+                </div>
               </div>
             ) : error ? (
               <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/40 text-xs text-rose-300 space-y-2">

@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { ActiveRepoState, GitHubFileItem } from '../../lib/types';
 import {
-  getOctokit,
   fetchRepoBranches,
   fetchRepoContents,
   fetchFileContent,

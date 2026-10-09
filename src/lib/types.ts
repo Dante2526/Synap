@@ -60,6 +60,14 @@ export interface MessageEditedFile {
   changeId?: string;
 }
 
+export interface MessageToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  status: 'running' | 'waiting' | 'pending' | 'completed' | 'error';
+  result?: string;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -71,6 +79,7 @@ export interface Message {
   reasoningEffort?: ReasoningEffort; // 'low' | 'high' | 'max'
   isPlanMode?: boolean;
   editedFiles?: MessageEditedFile[]; // arquivos editados pela IA nesta mensagem
+  toolCalls?: MessageToolCall[]; // histórico e status das chamadas de ferramentas executadas
 }
 
 export interface Conversation {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ThinkingOrb } from 'thinking-orbs';
 import {
   X,
   Moon,
@@ -293,8 +294,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     {isValidatingGithub ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Validando...</span>
+                        <ThinkingOrb
+                          state="connecting"
+                          size={20}
+                          theme="dark"
+                          speed={1.5}
+                          aria-label="Conectando…"
+                        />
+                        <span>Conectando...</span>
                       </>
                     ) : (
                       <>

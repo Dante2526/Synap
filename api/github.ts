@@ -193,15 +193,41 @@ export default async function handler(req: Request): Promise<Response> {
     // 6. Buscar código no repositório
     if (action === 'search') {
       const q = url.searchParams.get('q') || '';
-      if (!q) {
+      const owner = url.searchParams.get('owner') || '';
+      const repo = url.searchParams.get('repo') || '';
+
+      if (!q.trim()) {
         return new Response(JSON.stringify([]), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
+      // Restringir a busca ao repositório ativo (repo:owner/repo), comportamento similar ao VS Code
+      let searchQuery = q.trim();
+      const repoQualifier =
+        owner && repo
+          ? repo.includes('/')
+            ? repo
+            : `${owner}/${repo}`
+          : repo.includes('/')
+          ? repo
+          : '';
+
+      if (repoQualifier && !searchQuery.includes('repo:')) {
+        searchQuery = `${searchQuery} repo:${repoQualifier}`;
+      } else if (!searchQuery.includes('repo:')) {
+        return new Response(
+          JSON.stringify({ error: 'Parâmetros owner e repo são obrigatórios para busca no repositório ativo.' }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
       const { data } = await octokit.rest.search.code({
-        q,
+        q: searchQuery,
         per_page: 15,
       });
 
