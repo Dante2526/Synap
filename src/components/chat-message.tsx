@@ -1,7 +1,22 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronDown, ChevronRight, Copy, Check, FileText, ListTodo, FileCode, ExternalLink, Loader2, Terminal, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Check,
+  FileText,
+  ListTodo,
+  FileCode,
+  ExternalLink,
+  Loader2,
+  Terminal,
+  RefreshCw,
+  GitMerge,
+  Layers,
+  GitBranch,
+} from 'lucide-react';
 import { ThinkingOrb } from 'thinking-orbs';
 import { Message } from '../lib/types';
 import { formatFileSize } from '../lib/utils';
@@ -13,52 +28,78 @@ interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
   onViewDiff?: (path: string) => void;
+  onOpenTerminal?: () => void;
+  onOpenSourceControl?: () => void;
 }
 
 const ChatImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [retryCount, setRetryCount] = useState(0);
-  const [currentSrc, setCurrentSrc] = useState(src || '');
-  const MAX_RETRIES = 15;
+  const MAX_RETRIES = 8;
+  const INITIAL_DELAY = 1500;
 
   React.useEffect(() => {
-    setLoaded(false);
-    setError(false);
+    if (!src) {
+      setStatus('error');
+      return;
+    }
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let attempt = 0;
+
+    const tryLoad = () => {
+      if (cancelled) return;
+      attempt++;
+      setRetryCount(attempt);
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        setStatus('ready');
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        if (attempt >= MAX_RETRIES) {
+          setStatus('error');
+          return;
+        }
+        // Backoff exponencial: 1.5s, 2.5s, 4s, 6s, 9s, 13s, 18s, 24s = ~78s total
+        const delay = Math.min(INITIAL_DELAY * Math.pow(1.6, attempt - 1), 25000);
+        timeoutId = setTimeout(tryLoad, delay);
+      };
+      // Cache buster só no retry, não no primeiro
+      const url = attempt === 1 ? src : `${src}${src.includes('?') ? '&' : '?'}_r=${attempt}`;
+      img.src = url;
+    };
+
+    setStatus('loading');
     setRetryCount(0);
-    setCurrentSrc(src || '');
+    tryLoad();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [src]);
 
-  const handleError = () => {
-    if (retryCount < MAX_RETRIES) {
-      const nextRetry = retryCount + 1;
-      setRetryCount(nextRetry);
-      // Tenta recarregar em segundo plano a cada 2s sem poluir a interface
-      setTimeout(() => {
-        const separator = (src || '').includes('?') ? '&' : '?';
-        setCurrentSrc(`${src}${separator}_r=${nextRetry}`);
-      }, 2000);
-    } else {
-      setError(true);
-    }
-  };
-
   const handleManualRetry = () => {
-    setError(false);
-    setLoaded(false);
-    setRetryCount(0);
-    const separator = (src || '').includes('?') ? '&' : '?';
-    setCurrentSrc(`${src}${separator}_t=${Date.now()}`);
+    setStatus('loading');
+    setRetryCount(1);
+    const url = `${src}${src?.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+    if (url) {
+      const img = new Image();
+      img.onload = () => setStatus('ready');
+      img.onerror = () => setStatus('error');
+      img.src = url;
+    }
   };
 
   if (!src) return null;
 
   return (
     <div className="my-3 flex flex-col items-start max-w-md w-full">
-      <div className="relative w-full rounded-2xl overflow-hidden border border-[#3e392f] bg-[#1d1b18] shadow-md group min-h-[240px]">
-        {/* Enquanto a imagem não estiver 100% pronta, mantém o orbe ativo na tela */}
-        {!loaded && !error && (
-          <div className="w-full aspect-square flex flex-col items-center justify-center gap-3 p-6 bg-[#1d1b18]">
+      <div className="relative w-full aspect-square max-w-[440px] rounded-2xl overflow-hidden border border-[#3e392f] bg-[#1d1b18] shadow-md group">
+        {status === 'loading' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 bg-[#1d1b18] z-10">
             <ThinkingOrb
               state="shaping"
               size={64}
@@ -69,25 +110,26 @@ const ChatImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
             <span className="text-xs font-medium text-[#f09a7d] animate-pulse">
               Criando a imagem…
             </span>
+            {retryCount > 1 && (
+              <span className="text-[10px] text-[#8c867a]">
+                Tentativa {retryCount} de {MAX_RETRIES}…
+              </span>
+            )}
           </div>
         )}
 
-        <img
-          src={currentSrc}
-          alt={alt || 'Imagem gerada por IA'}
-          loading="eager"
-          onLoad={() => {
-            setLoaded(true);
-            setError(false);
-          }}
-          onError={handleError}
-          className={`w-full h-auto object-cover rounded-2xl transition-opacity duration-500 ${
-            loaded ? 'opacity-100 block' : 'opacity-0 absolute inset-0 pointer-events-none'
-          }`}
-        />
+        {status === 'ready' && (
+          <img
+            src={src}
+            alt={alt || 'Imagem gerada por IA'}
+            loading="eager"
+            decoding="async"
+            className="w-full h-full object-cover rounded-2xl transition-opacity duration-500 opacity-100 block"
+          />
+        )}
 
-        {loaded && (
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 backdrop-blur-md p-1 rounded-xl">
+        {status === 'ready' && (
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 backdrop-blur-md p-1 rounded-xl z-20">
             <a
               href={src}
               target="_blank"
@@ -100,8 +142,8 @@ const ChatImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
           </div>
         )}
 
-        {error && (
-          <div className="w-full p-6 flex flex-col items-center justify-center text-center gap-3 text-rose-300 bg-rose-950/30 border border-rose-900/50 rounded-2xl min-h-[220px]">
+        {status === 'error' && (
+          <div className="absolute inset-0 p-6 flex flex-col items-center justify-center text-center gap-3 text-rose-300 bg-rose-950/30 border border-rose-900/50 rounded-2xl z-10">
             <span className="text-xs font-medium">A geração da imagem demorou mais do que o esperado.</span>
             <div className="flex items-center gap-2">
               <button
@@ -125,7 +167,7 @@ const ChatImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
         )}
       </div>
 
-      {alt && alt !== 'image' && !alt.startsWith('http') && (
+      {alt && alt !== 'image' && !alt.startsWith('http') && status === 'ready' && (
         <span className="text-[11px] text-[#8c867a] mt-1.5 italic px-1 font-sans">
           {alt}
         </span>
@@ -134,10 +176,12 @@ const ChatImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
   );
 };
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({
+export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   message,
   isStreaming = false,
   onViewDiff,
+  onOpenTerminal,
+  onOpenSourceControl,
 }) => {
   const isUser = message.role === 'user';
   const [showReasoning, setShowReasoning] = useState(false);
@@ -155,12 +199,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     }
   }
 
-  // Normaliza markdown de imagens para evitar quebras de linha entre ![...] e (...)
-  // e converte links diretos do pollinations para markdown de imagem
-  const cleanContent = displayContent
-    .replace(/!\[([^\]]*)\]\s*\n+\s*\((https?:\/\/[^\s)]+)\)/g, '![$1]($2)')
-    .replace(/(^|\n|\s)(https?:\/\/image\.pollinations\.ai\/[^\s)]+)/g, '$1![]($2)');
-
   const runningTool = message.toolCalls?.find((tc) => tc.status === 'running');
   const waitingTool = message.toolCalls?.find(
     (tc) => tc.status === 'waiting' || tc.status === 'pending'
@@ -169,6 +207,36 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const isEditingFile = runningTool?.name === 'edit_file';
   const isWebSearch = runningTool?.name === 'web_search' || runningTool?.name === 'search_web';
   const isImageGen = runningTool?.name === 'generate_image';
+
+  // Normaliza markdown de imagens para evitar quebras de linha entre ![...] e (...)
+  let cleanContent = displayContent.replace(
+    /!\[([^\]]*)\]\s*\n+\s*\((https?:\/\/[^\s)]+)\)/g,
+    '![$1]($2)'
+  );
+
+  // Se houver chamada a generate_image nesta mensagem (em execução, pendente ou concluída),
+  // impede que imagens alucinadas / geradas prematuramente no texto apareçam antes da hora
+  const imageGenCall = message.toolCalls?.find((tc) => tc.name === 'generate_image');
+  if (imageGenCall) {
+    if (imageGenCall.status !== 'completed') {
+      cleanContent = cleanContent.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+    } else if (imageGenCall.status === 'completed' && imageGenCall.result) {
+      try {
+        const parsed = JSON.parse(imageGenCall.result);
+        const validUrl = parsed.url;
+        if (validUrl) {
+          cleanContent = cleanContent.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (match, alt, url) => {
+            if (url === validUrl || url.includes(validUrl) || validUrl.includes(url)) {
+              return match;
+            }
+            return '';
+          });
+        }
+      } catch {}
+    }
+  } else if (hasRunningTool && isImageGen) {
+    cleanContent = cleanContent.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+  }
 
   // Quando ferramentas já foram acionadas e a IA está aguardando conclusão em segundo plano para dar o OK do serviço
   const isAwaitingCompletion =
@@ -182,6 +250,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     switch (toolName) {
       case 'generate_image':
         return 'Criando a imagem…';
+      case 'run_terminal_command':
+      case 'terminal':
+        return 'Executando comando…';
       case 'web_search':
       case 'search_web':
         return 'Juntando as fontes…';
@@ -421,7 +492,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   return (
                     <div
                       key={tc.id}
-                      className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#24211d] border border-[#d97757]/40 shadow-xs animate-in fade-in duration-300"
+                      className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#24211d] border border-[#d97757]/40 shadow-xs"
                     >
                       <ThinkingOrb
                         state={orbState}
@@ -456,7 +527,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   return (
                     <div
                       key={tc.id}
-                      className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#24211d] border border-[#d97757]/40 shadow-xs animate-in fade-in duration-300"
+                      className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#24211d] border border-[#d97757]/40 shadow-xs"
                     >
                       <ThinkingOrb
                         state="working"
@@ -487,6 +558,69 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   );
                 }
 
+                if (tc.name === 'run_terminal_command' || tc.name === 'terminal') {
+                  let parsedResult: any = null;
+                  try {
+                    parsedResult = tc.result ? JSON.parse(tc.result) : null;
+                  } catch {}
+
+                  const cmd = targetParam || parsedResult?.command || 'comando';
+                  const stdout = parsedResult?.stdout || '';
+                  const stderr = parsedResult?.stderr || parsedResult?.error || '';
+                  const exitCode = parsedResult?.exitCode ?? (tc.status === 'error' ? 1 : 0);
+
+                  return (
+                    <div
+                      key={tc.id}
+                      className="rounded-xl overflow-hidden border border-[#3e392f] bg-[#141310] shadow-sm my-1.5 font-mono text-xs w-full"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 bg-[#1f1d19] border-b border-[#2d2a23]">
+                        <div className="flex items-center gap-2 truncate">
+                          <Terminal className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
+                          <span className="text-[#d97757] font-bold select-none">$</span>
+                          <span className="text-[#f3efe6] font-semibold truncate">{cmd}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          {exitCode === 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              exit 0
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                              exit {exitCode}
+                            </span>
+                          )}
+                          {onOpenTerminal && (
+                            <button
+                              type="button"
+                              onClick={onOpenTerminal}
+                              title="Abrir no Terminal interativo"
+                              className="text-[10px] text-[#8c867a] hover:text-[#f09a7d] px-2 py-0.5 rounded bg-[#292620] hover:bg-[#343028] transition cursor-pointer"
+                            >
+                              Abrir Terminal
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {(stdout || stderr) && (
+                        <div className="p-3 max-h-56 overflow-y-auto space-y-1.5 text-[11px] leading-relaxed bg-[#11100d]">
+                          {stdout && (
+                            <pre className="text-[#d8d3c9] whitespace-pre-wrap break-words">
+                              {stdout}
+                            </pre>
+                          )}
+                          {stderr && (
+                            <pre className="text-rose-300 bg-rose-950/20 p-2 rounded border border-rose-900/30 whitespace-pre-wrap break-words">
+                              {stderr}
+                            </pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={tc.id}
@@ -512,53 +646,133 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             </div>
           )}
 
-          {/* Edited Files Cards (VS Code style Source Control diff shortcut) */}
+          {/* Edited Files Cards / Batch Refactoring Card */}
           {message.editedFiles && message.editedFiles.length > 0 && (
             <div className="w-full mb-3 space-y-2">
-              {message.editedFiles.map((file, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-xl bg-[#23201c] border border-[#3e392f] flex items-center justify-between gap-3 text-xs shadow-xs"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-[#2e2a22] flex items-center justify-center text-[#d97757] shrink-0">
-                      <FileCode className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#f3efe6] font-mono font-medium truncate">
-                          {file.path}
-                        </span>
-                        <span
-                          className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
-                            file.type === 'modified'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              : file.type === 'added'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                          }`}
-                        >
-                          {file.type === 'modified' ? 'Editado' : file.type === 'added' ? 'Criado' : 'Removido'}
-                        </span>
+              {/* If multiple files were edited or batchRefactor is present: Show prominent Batch Refactor Card */}
+              {(message.batchRefactor || message.editedFiles.length >= 2) ? (
+                <div className="rounded-2xl bg-[#201e1a] border border-[#484133] shadow-md overflow-hidden">
+                  {/* Card Header */}
+                  <div className="p-3.5 bg-[#27241f] border-b border-[#3b362b] flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-[#d97757]/20 border border-[#d97757]/40 flex items-center justify-center text-[#f09a7d] shrink-0">
+                        <Layers className="w-4 h-4 text-[#d97757]" />
                       </div>
-                      <p className="text-[10px] text-[#8c867a] mt-0.5">
-                        Alteração pronta para revisão no Source Control
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-[#f3efe6] truncate">
+                            {message.batchRefactor?.summary || 'Refatoração Multi-arquivo'}
+                          </span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40 shrink-0">
+                            {message.editedFiles.length} arquivos
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#8c867a] mt-0.5 truncate">
+                          Alterações aplicadas e sincronizadas no Source Control
+                        </p>
+                      </div>
                     </div>
+
+                    {onOpenSourceControl && (
+                      <button
+                        type="button"
+                        onClick={onOpenSourceControl}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#d97757] hover:bg-[#c26647] text-white text-xs font-medium transition cursor-pointer shrink-0 shadow-xs active:scale-[0.98]"
+                      >
+                        <GitBranch className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Revisar no Source Control</span>
+                        <span className="sm:hidden">Revisar</span>
+                      </button>
+                    )}
                   </div>
 
-                  {onViewDiff && (
-                    <button
-                      type="button"
-                      onClick={() => onViewDiff(file.path)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2f2b23] hover:bg-[#3d372c] text-[#f3efe6] text-xs font-medium border border-[#484133] transition cursor-pointer shrink-0 shadow-xs"
-                    >
-                      <span>Ver diff</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-[#d97757]" />
-                    </button>
-                  )}
+                  {/* Files List in Batch */}
+                  <div className="divide-y divide-[#2d2a23]">
+                    {message.editedFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 px-3.5 hover:bg-[#25221d] transition flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${
+                              file.type === 'modified'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : file.type === 'added'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}
+                          >
+                            {file.type === 'modified' ? 'Modificado' : file.type === 'added' ? 'Novo' : 'Excluído'}
+                          </span>
+                          <span className="text-[#f3efe6] font-mono text-xs truncate">
+                            {file.path}
+                          </span>
+                        </div>
+
+                        {onViewDiff && (
+                          <button
+                            type="button"
+                            onClick={() => onViewDiff(file.path)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#2e2a22] hover:bg-[#3d372c] text-[#d8d3c9] hover:text-white text-[11px] font-medium border border-[#3e382d] transition cursor-pointer shrink-0"
+                          >
+                            <span>Diff</span>
+                            <ExternalLink className="w-3 h-3 text-[#d97757]" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              ) : (
+                /* Single file card fallback */
+                message.editedFiles.map((file, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-[#23201c] border border-[#3e392f] flex items-center justify-between gap-3 text-xs shadow-xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-[#2e2a22] flex items-center justify-center text-[#d97757] shrink-0">
+                        <FileCode className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#f3efe6] font-mono font-medium truncate">
+                            {file.path}
+                          </span>
+                          <span
+                            className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                              file.type === 'modified'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : file.type === 'added'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}
+                          >
+                            {file.type === 'modified' ? 'Editado' : file.type === 'added' ? 'Criado' : 'Removido'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[#8c867a] mt-0.5">
+                          Alteração pronta para revisão no Source Control
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {onViewDiff && (
+                        <button
+                          type="button"
+                          onClick={() => onViewDiff(file.path)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2f2b23] hover:bg-[#3d372c] text-[#f3efe6] text-xs font-medium border border-[#484133] transition cursor-pointer shadow-xs"
+                        >
+                          <span>Ver diff</span>
+                          <ExternalLink className="w-3.5 h-3.5 text-[#d97757]" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
@@ -618,9 +832,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                     return <ChatImage src={src} alt={alt} />;
                   },
                   a({ href, children }) {
-                    if (href && href.includes('image.pollinations.ai')) {
-                      return <ChatImage src={href} alt={String(children || 'Imagem gerada')} />;
-                    }
                     return (
                       <a
                         href={href}
@@ -643,7 +854,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 {cleanContent}
               </ReactMarkdown>
             ) : isStreaming && !hasRunningTool ? (
-              <div className="flex flex-col items-start gap-3 py-3 my-1 animate-in fade-in duration-300">
+              <div className="flex flex-col items-start gap-3 py-3 my-1">
                 <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#24211d] border border-[#3a352a] shadow-xs">
                   <ThinkingOrb
                     state="working"
@@ -718,4 +929,4 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       )}
     </div>
   );
-};
+});

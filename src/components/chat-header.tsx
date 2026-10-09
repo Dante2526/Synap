@@ -1,5 +1,5 @@
 import React from 'react';
-import { PanelLeft, Plus, AlertCircle, Settings, FolderGit2, GitBranch, X, RefreshCw } from 'lucide-react';
+import { PanelLeft, Plus, AlertCircle, Settings, FolderGit2, GitBranch, X, RefreshCw, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
 import { ClaudeLogo } from './claude-logo';
 import { ActiveRepoState } from '../lib/types';
 
@@ -13,6 +13,8 @@ interface ChatHeaderProps {
   onOpenSourceControl?: () => void;
   onOpenRepoList?: () => void;
   onCloseRepo?: () => void;
+  onToggleTerminal?: () => void;
+  isTerminalOpen?: boolean;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -25,6 +27,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onOpenSourceControl,
   onOpenRepoList,
   onCloseRepo,
+  onToggleTerminal,
+  isTerminalOpen = false,
 }) => {
   return (
     <header className="h-13 sm:h-14 border-b border-[#2d2b26] bg-[#1b1a17]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between sticky top-0 z-30 select-none max-w-full overflow-hidden">
@@ -126,9 +130,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         )}
       </div>
 
-      {/* Right side: Status indicator & Settings */}
+      {/* Right side: Terminal button & Settings */}
       <div className="flex items-center gap-2">
-        {hasApiKey === false ? (
+        {hasApiKey === false && (
           <div
             title="Chave de API não configurada no servidor (.env.local)"
             className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 flex-shrink-0"
@@ -136,11 +140,28 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Sem Chave</span>
           </div>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#a39d93] px-2.5 py-1 rounded-md bg-[#25231f] border border-[#36332d]">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Online</span>
-          </div>
+        )}
+
+        {onToggleTerminal && (
+          <button
+            type="button"
+            onClick={onToggleTerminal}
+            aria-label="Alternar Terminal"
+            title="Abrir/Fechar Terminal (Ctrl+`)"
+            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg border text-xs font-mono transition-colors duration-150 cursor-pointer select-none ${
+              isTerminalOpen
+                ? 'bg-[#d97757]/20 text-[#f09a7d] border-[#d97757]/40 shadow-xs'
+                : 'bg-[#25231f] hover:bg-[#2e2a24] text-[#c4bfb6] hover:text-[#f3efe6] border-[#36332d]'
+            }`}
+          >
+            <TerminalIcon className="w-3.5 h-3.5 text-[#d97757]" />
+            <span className="font-medium">Terminal</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-[#8c867a] transition-transform duration-200 ${
+                isTerminalOpen ? 'rotate-180 text-[#d97757]' : ''
+              }`}
+            />
+          </button>
         )}
 
         {onOpenSettings && (

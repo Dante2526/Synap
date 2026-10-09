@@ -190,11 +190,13 @@ export default async function handler(req: Request): Promise<Response> {
       });
     }
 
-    // 6. Buscar código no repositório
+    // 6. Buscar código no repositório ativo (comportamento idêntico ao VS Code)
     if (action === 'search') {
       const q = url.searchParams.get('q') || '';
       const owner = url.searchParams.get('owner') || '';
       const repo = url.searchParams.get('repo') || '';
+      const pathFilter = url.searchParams.get('path') || '';
+      const extFilter = url.searchParams.get('extension') || '';
 
       if (!q.trim()) {
         return new Response(JSON.stringify([]), {
@@ -203,22 +205,11 @@ export default async function handler(req: Request): Promise<Response> {
         });
       }
 
-      // Restringir a busca ao repositório ativo (repo:owner/repo), comportamento similar ao VS Code
-      let searchQuery = q.trim();
-      const repoQualifier =
-        owner && repo
-          ? repo.includes('/')
-            ? repo
-            : `${owner}/${repo}`
-          : repo.includes('/')
-          ? repo
-          : '';
-
-      if (repoQualifier && !searchQuery.includes('repo:')) {
-        searchQuery = `${searchQuery} repo:${repoQualifier}`;
-      } else if (!searchQuery.includes('repo:')) {
+      // Restringir a busca exclusivamente ao repositório ativo (repo:owner/repo)
+      const targetRepo = owner && repo ? (repo.includes('/') ? repo : `${owner}/${repo}`) : repo;
+      if (!targetRepo) {
         return new Response(
-          JSON.stringify({ error: 'Parâmetros owner e repo são obrigatórios para busca no repositório ativo.' }),
+          JSON.stringify({ error: 'Nenhum repositório ativo configurado para busca de código.' }),
           {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
@@ -226,21 +217,46 @@ export default async function handler(req: Request): Promise<Response> {
         );
       }
 
-      const { data } = await octokit.rest.search.code({
-        q: searchQuery,
-        per_page: 15,
-      });
+      // Limpa qualquer qualificador repo manual para garantir escopo estrito no repositório ativo
+      const cleanTerm = q.replace(/repo:[^\s]+/gi, '').trim();
+      let searchQuery = cleanTerm ? `${cleanTerm} repo:${targetRepo}` : `repo:${targetRepo}`;
 
-      const items = data.items.map((i) => ({
-        name: i.name,
-        path: i.path,
-        html_url: i.html_url,
-      }));
+      if (pathFilter && !searchQuery.includes('path:')) {
+        searchQuery = `${searchQuery} path:${pathFilter}`;
+      }
+      if (extFilter && !searchQuery.includes('extension:')) {
+        searchQuery = `${searchQuery} extension:${extFilter}`;
+      }
 
-      return new Response(JSON.stringify(items), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      try {
+        const { data } = await octokit.rest.search.code({
+          q: searchQuery,
+          per_page: 20,
+          headers: {
+            accept: 'application/vnd.github.text-match+json',
+          },
+        });
+
+        const items = (data.items || []).map((i: any) => ({
+          name: i.name,
+          path: i.path,
+          html_url: i.html_url,
+          snippets: (i.text_matches || []).map((tm: any) => tm.fragment).filter(Boolean).slice(0, 3),
+        }));
+
+        return new Response(JSON.stringify(items), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (searchErr: any) {
+        return new Response(
+          JSON.stringify({ error: searchErr?.message || 'Falha ao buscar código no GitHub.' }),
+          {
+            status: searchErr?.status || 500,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
     }
 
     // 7. Criar commit atômico com múltiplos arquivos (Trees API)
@@ -332,6 +348,102 @@ export default async function handler(req: Request): Promise<Response> {
           headers: { 'Content-Type': 'application/json' },
         }
       );
+    }
+
+    // 8. Criar nova branch direto pela UI (a partir de uma branch existente)
+    if (action === 'create_branch' && req.method.toUpperCase() === 'POST') {
+      const body = await req.json();
+      const { owner, repo, branch, fromBranch } = body;
+
+      if (!owner || !repo || !branch) {
+        return new Response(
+          JSON.stringify({ error: 'Parâmetros owner, repo e branch são obrigatórios.' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const cleanBranch = branch.trim().replace(/^refs\/heads\//, '').replace(/\s+/g, '-');
+      const baseBranch = fromBranch || 'main';
+      let baseSha = '';
+
+      try {
+        const { data: ref } = await octokit.rest.git.getRef({
+          owner,
+          repo,
+          ref: `heads/${baseBranch}`,
+        });
+        baseSha = ref.object.sha;
+      } catch (refErr: any) {
+        if (baseBranch === 'main') {
+          const { data: refMaster } = await octokit.rest.git.getRef({
+            owner,
+            repo,
+            ref: 'heads/master',
+          });
+          baseSha = refMaster.object.sha;
+        } else {
+          throw new Error(`Branch base '${baseBranch}' não encontrada no repositório.`);
+        }
+      }
+
+      const { data: newRef } = await octokit.rest.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${cleanBranch}`,
+        sha: baseSha,
+      });
+
+      return new Response(
+        JSON.stringify({
+          branch: cleanBranch,
+          ref: newRef.ref,
+          sha: newRef.object.sha,
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 9. Listar histórico de commits recentes do repositório
+    if (action === 'commits') {
+      const owner = url.searchParams.get('owner') || '';
+      const repo = url.searchParams.get('repo') || '';
+      const branch = url.searchParams.get('branch') || undefined;
+      const perPage = Math.min(parseInt(url.searchParams.get('per_page') || '25', 10), 50);
+
+      if (!owner || !repo) {
+        return new Response(
+          JSON.stringify({ error: 'Parâmetros owner e repo são obrigatórios.' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const { data } = await octokit.rest.repos.listCommits({
+        owner,
+        repo,
+        sha: branch,
+        per_page: perPage,
+      });
+
+      const commits = data.map((c) => ({
+        sha: c.sha,
+        short_sha: c.sha.substring(0, 7),
+        message: c.commit.message,
+        author: {
+          name: c.commit.author?.name || c.author?.login || 'Autor desconhecido',
+          login: c.author?.login,
+          avatar_url: c.author?.avatar_url,
+          date: c.commit.author?.date || null,
+        },
+        html_url: c.html_url,
+      }));
+
+      return new Response(JSON.stringify(commits), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify({ error: `Ação '${action}' desconhecida.` }), {

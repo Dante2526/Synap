@@ -31,6 +31,9 @@ import { ClaudeLogo } from './components/claude-logo';
 import { PendingChangesProvider, usePendingChanges } from './lib/pending-changes';
 import { DiffViewer } from './components/source-control/diff-viewer';
 import { fetchFileContent, fetchRepoContents, searchCode } from './lib/github';
+import { TerminalPanel, TerminalEntry } from './components/terminal-panel';
+import { executeEmulatedCommand } from './lib/git-terminal-emulator';
+import { commitStagedChanges } from './lib/github-commit';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -69,11 +72,14 @@ const GITHUB_TOOLS = [
     type: 'function',
     function: {
       name: 'search_code',
-      description: 'Busca por ocorrências de texto ou código no repositório ativo',
+      description:
+        'Busca por ocorrências de texto, funções ou classes exclusivamente no repositório ativo (equivalente à busca de arquivos do VS Code Ctrl+Shift+F). Retorna caminhos e trechos de código (snippets).',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Termo de busca ou nome de função/classe' },
+          query: { type: 'string', description: 'Termo de busca, nome de função, variável ou classe' },
+          path: { type: 'string', description: 'Caminho ou pasta opcional para filtrar a busca (ex: src/)' },
+          extension: { type: 'string', description: 'Extensão de arquivo opcional para filtrar (ex: ts, tsx, js, py)' },
         },
         required: ['query'],
       },
@@ -100,6 +106,41 @@ const GITHUB_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_edit_files',
+      description:
+        'Aplica uma refatoração em lote em múltiplos arquivos de uma só vez no repositório ativo. Todas as alterações ficam pendentes no Source Control para revisão atômica e unificada pelo usuário.',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Breve resumo ou título da refatoração realizada (ex: Refatoração de componentes de UI e tipos)',
+          },
+          files: {
+            type: 'array',
+            description: 'Lista de arquivos a serem criados, alterados ou removidos',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string', description: 'Caminho relativo do arquivo (ex: src/components/button.tsx)' },
+                content: { type: 'string', description: 'Conteúdo completo do arquivo' },
+                type: {
+                  type: 'string',
+                  enum: ['modified', 'added', 'deleted'],
+                  description: 'Tipo de alteração: modified (padrão), added ou deleted',
+                },
+              },
+              required: ['path', 'content'],
+            },
+          },
+        },
+        required: ['summary', 'files'],
+      },
+    },
+  },
 ];
 
 const WEB_SEARCH_TOOL = {
@@ -121,7 +162,9 @@ const IMAGE_GEN_TOOL = {
   type: 'function',
   function: {
     name: 'generate_image',
-    description: 'Gera uma imagem artística, fotografia ou ilustração a partir de um prompt descritivo',
+    description:
+      'Gera uma imagem artística, fotografia ou ilustração de alta qualidade com modelo FLUX. ' +
+      'Use SEMPRE esta ferramenta para gerar imagens. NUNCA gere ou invente URLs ou sintaxe de imagem markdown no texto antes de chamar a ferramenta.',
     parameters: {
       type: 'object',
       properties: {
@@ -137,8 +180,24 @@ const IMAGE_GEN_TOOL = {
   },
 };
 
-const DEFAULT_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL];
-const ALL_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL, ...GITHUB_TOOLS];
+const TERMINAL_TOOL = {
+  type: 'function',
+  function: {
+    name: 'run_terminal_command',
+    description:
+      'Executa comandos no terminal do sistema (ex: npm test, git status, git log, ls, cat, pwd, node -v). Retorna stdout, stderr e exitCode.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Comando do shell/bash a ser executado' },
+      },
+      required: ['command'],
+    },
+  },
+};
+
+const DEFAULT_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL, TERMINAL_TOOL];
+const ALL_CHAT_TOOLS = [WEB_SEARCH_TOOL, IMAGE_GEN_TOOL, TERMINAL_TOOL, ...GITHUB_TOOLS];
 
 export default function App() {
   return (
@@ -156,6 +215,7 @@ function AppContent() {
     unstageChange,
     discardChange,
     updateChangeContent,
+    clearCommitted,
   } = usePendingChanges();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -201,8 +261,28 @@ function AppContent() {
   });
 
   const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState<boolean>(false);
+  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
+  const [isTerminalRunning, setIsTerminalRunning] = useState<boolean>(false);
+  const [terminalCwd, setTerminalCwd] = useState<string>('/');
+
+  // Terminal shortcut (Ctrl + ` or Alt + T)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey && e.key === '`') || (e.altKey && (e.key === 't' || e.key === 'T'))) {
+        e.preventDefault();
+        setIsTerminalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const isUserScrollingRef = useRef<boolean>(false);
+  const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Check backend server status
@@ -258,14 +338,56 @@ function AppContent() {
     }
   }, [conversations, settings.saveHistoryLocally]);
 
-  // Scroll to bottom
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Handle user scroll detection on message container
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    // Considera que está no fim se estiver a menos de 100px do fundo
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isAtBottomRef.current = distanceFromBottom <= 100;
 
+    isUserScrollingRef.current = true;
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    userScrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 250);
+  }, []);
+
+  // Controlled scroll to bottom without locking user gestures
+  const scrollToBottom = useCallback((force = false, smooth = false) => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (force || (isAtBottomRef.current && !isUserScrollingRef.current)) {
+      if (smooth) {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: 'smooth',
+        });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  }, []);
+
+  // Auto-scroll when messages stream or change (apenas se o usuário já estiver no fundo e não estiver interagindo)
   useEffect(() => {
-    scrollToBottom();
+    if (isAtBottomRef.current && !isUserScrollingRef.current && messagesContainerRef.current) {
+      const el = messagesContainerRef.current;
+      requestAnimationFrame(() => {
+        if (isAtBottomRef.current && !isUserScrollingRef.current && el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    }
   }, [conversations, isStreaming]);
+
+  // Reset scroll to bottom when switching conversation
+  useEffect(() => {
+    isAtBottomRef.current = true;
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [activeId]);
 
   // Active conversation helper
   const activeConversation = conversations.find((c) => c.id === activeId) || null;
@@ -312,7 +434,11 @@ function AppContent() {
     }
   };
 
-  const handleViewDiffForPath = (path: string) => {
+  const handleOpenTerminal = useCallback(() => {
+    setIsTerminalOpen(true);
+  }, []);
+
+  const handleViewDiffForPath = useCallback((path: string) => {
     const found = changes.find(
       (c) => c.path === path && (activeRepo ? c.repo === activeRepo.fullName : true)
     );
@@ -322,7 +448,7 @@ function AppContent() {
       setSidebarTab('source-control');
       setIsSidebarOpen(true);
     }
-  };
+  }, [changes, activeRepo]);
 
   const handleTogglePlanMode = () => {
     setIsPlanMode((prev) => {
@@ -441,7 +567,12 @@ function AppContent() {
     name: string,
     args: any,
     currentRepo: ActiveRepoState | null
-  ): Promise<{ result: string; editedFile?: MessageEditedFile }> => {
+  ): Promise<{
+    result: string;
+    editedFile?: MessageEditedFile;
+    editedFiles?: MessageEditedFile[];
+    batchRefactor?: { summary: string; files: MessageEditedFile[] };
+  }> => {
     if (name === 'web_search' || name === 'search_web') {
       try {
         const query = args.query || args.q || '';
@@ -477,6 +608,67 @@ function AppContent() {
         };
       } catch (err: any) {
         return { result: JSON.stringify({ error: err?.message || 'Erro ao gerar imagem' }) };
+      }
+    }
+
+    if (name === 'run_terminal_command' || name === 'terminal') {
+      try {
+        const cmd = args.command || args.cmd || '';
+        const termData = await executeEmulatedCommand(cmd, {
+          activeRepo,
+          changes,
+          cwd: terminalCwd,
+          setCwd: setTerminalCwd,
+          gitHubUser: null,
+          onChangeBranch: (newBranch) => {
+            if (activeRepo) {
+              setActiveRepo({ ...activeRepo, branch: newBranch });
+            }
+          },
+          onCommitChanges: async (msg) => {
+            const repoFullName = activeRepo?.fullName || `${activeRepo?.owner}/${activeRepo?.repo}`;
+            const repoChanges = changes.filter((c) => !c.repo || c.repo === repoFullName);
+            if (!activeRepo || repoChanges.length === 0) return false;
+
+            const res = await commitStagedChanges(
+              null,
+              activeRepo.owner,
+              activeRepo.repo,
+              activeRepo.branch,
+              msg,
+              repoChanges
+            );
+            await clearCommitted(repoChanges);
+            return true;
+          },
+          onClearTerminal: () => setTerminalEntries([]),
+        });
+
+        const entry: TerminalEntry = {
+          id: generateId(),
+          command: cmd,
+          stdout: termData.stdout || '',
+          stderr: termData.stderr || '',
+          exitCode: termData.exitCode,
+          cwd: termData.cwd || terminalCwd,
+          executionTimeMs: termData.executionTimeMs,
+          timestamp: Date.now(),
+        };
+        setTerminalEntries((prev) => [...prev, entry]);
+
+        return {
+          result: JSON.stringify({
+            command: cmd,
+            stdout: termData.stdout,
+            stderr: termData.stderr,
+            exitCode: termData.exitCode,
+            success: termData.success,
+          }),
+        };
+      } catch (err: any) {
+        return {
+          result: JSON.stringify({ error: err?.message || 'Falha ao executar comando no terminal.' }),
+        };
       }
     }
 
@@ -550,6 +742,81 @@ function AppContent() {
       };
     }
 
+    if (name === 'batch_edit_files') {
+      const summary = args.summary || 'Refatoração multi-arquivo';
+      const files = Array.isArray(args.files) ? args.files : [];
+
+      if (files.length === 0) {
+        return {
+          result: JSON.stringify({ error: 'Nenhum arquivo fornecido para refatoração em lote.' }),
+        };
+      }
+
+      const processedFiles: MessageEditedFile[] = [];
+
+      for (const item of files) {
+        if (!item.path) continue;
+        const itemType = (item.type as ChangeType) || 'modified';
+        let originalContent: string | undefined = undefined;
+
+        if (itemType === 'modified' || itemType === 'deleted') {
+          try {
+            originalContent = await fetchFileContent(
+              null,
+              currentRepo.owner,
+              currentRepo.repo,
+              item.path,
+              currentRepo.branch
+            );
+          } catch {
+            // New file or unable to read original
+          }
+        }
+
+        await addChange({
+          path: item.path,
+          repo: currentRepo.fullName,
+          branch: currentRepo.branch,
+          type: itemType,
+          originalContent,
+          newContent: item.content || '',
+        });
+
+        processedFiles.push({
+          path: item.path,
+          type: itemType,
+        });
+      }
+
+      setToastNotification({
+        message: `IA refatorou ${processedFiles.length} arquivos — revise em Source Control`,
+        actionLabel: 'Ver Source Control',
+        onAction: () => {
+          setSidebarTab('source-control');
+          setIsSidebarOpen(true);
+        },
+      });
+
+      setTimeout(() => {
+        setToastNotification(null);
+      }, 5000);
+
+      return {
+        result: JSON.stringify({
+          success: true,
+          summary,
+          filesCount: processedFiles.length,
+          files: processedFiles.map((f) => f.path),
+          message: `Refatoração multi-arquivo concluída com sucesso (${processedFiles.length} arquivos preparados para revisão no Source Control).`,
+        }),
+        editedFiles: processedFiles,
+        batchRefactor: {
+          summary,
+          files: processedFiles,
+        },
+      };
+    }
+
     if (name === 'read_file') {
       try {
         const fileContent = await fetchFileContent(
@@ -586,7 +853,9 @@ function AppContent() {
           null,
           args.query,
           currentRepo.owner,
-          currentRepo.repo
+          currentRepo.repo,
+          args.path,
+          args.extension
         );
         return {
           result: JSON.stringify(items),
@@ -597,6 +866,71 @@ function AppContent() {
     }
 
     return { result: JSON.stringify({ error: `Ferramenta desconhecida: ${name}` }) };
+  };
+
+  const handleExecuteTerminalCommand = async (command: string) => {
+    setIsTerminalRunning(true);
+    try {
+      const termData = await executeEmulatedCommand(command, {
+        activeRepo,
+        changes,
+        cwd: terminalCwd,
+        setCwd: setTerminalCwd,
+        gitHubUser: null,
+        onChangeBranch: (newBranch) => {
+          if (activeRepo) {
+            setActiveRepo({ ...activeRepo, branch: newBranch });
+          }
+        },
+        onCommitChanges: async (msg) => {
+          const repoFullName = activeRepo?.fullName || `${activeRepo?.owner}/${activeRepo?.repo}`;
+          const repoChanges = changes.filter((c) => !c.repo || c.repo === repoFullName);
+          if (!activeRepo || repoChanges.length === 0) return false;
+
+          const res = await commitStagedChanges(
+            null,
+            activeRepo.owner,
+            activeRepo.repo,
+            activeRepo.branch,
+            msg,
+            repoChanges
+          );
+          await clearCommitted(repoChanges);
+          return true;
+        },
+        onClearTerminal: () => setTerminalEntries([]),
+      });
+
+      const newEntry: TerminalEntry = {
+        id: generateId(),
+        command,
+        stdout: termData.stdout || '',
+        stderr: termData.stderr || '',
+        exitCode: termData.exitCode,
+        cwd: termData.cwd || terminalCwd,
+        executionTimeMs: termData.executionTimeMs,
+        timestamp: Date.now(),
+      };
+      setTerminalEntries((prev) => [...prev, newEntry]);
+    } catch (err: any) {
+      setTerminalEntries((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          command,
+          stdout: '',
+          stderr: err?.message || 'Erro ao executar comando no emulador.',
+          exitCode: 1,
+          timestamp: Date.now(),
+        },
+      ]);
+    } finally {
+      setIsTerminalRunning(false);
+    }
+  };
+
+  const handleClearTerminal = () => {
+    setTerminalEntries([]);
   };
 
   // Send Message with Tools support
@@ -687,6 +1021,7 @@ function AppContent() {
     );
 
     setIsStreaming(true);
+    setTimeout(() => scrollToBottom(true, true), 50);
 
     const rawMessages = currentConv
       ? [...currentConv.messages, userMessage]
@@ -725,6 +1060,18 @@ function AppContent() {
       contextMessages = [repoSystemPrompt, ...contextMessages];
     }
 
+    // Prompt base instruindo o modelo sobre imagens e uso de ferramentas incluindo terminal
+    const baseSystemPrompt = {
+      role: 'system',
+      content:
+        'Você é o assistente Synap com ferramentas avançadas integradas.\n' +
+        'Regras estritas para ferramentas:\n' +
+        '1. Geração de Imagens: Quando o usuário pedir qualquer imagem ou ilustração, execute OBRIGATORIAMENTE a ferramenta `generate_image`. NUNCA invente, presuma ou escreva links de imagens ou sintaxe markdown como `![...](https://...)` no seu texto antes da execução da ferramenta.\n' +
+        '2. Terminal do Sistema: Você TEM ACESSO TOTAL à ferramenta `run_terminal_command` para executar comandos reais no terminal do sistema (ex: `ls`, `git status`, `git log`, `pwd`, `node -v`, `npm test`, `npm run lint`, `cat <arquivo>`, etc.). Sempre que o usuário pedir para rodar qualquer comando no terminal, verificar o ambiente, inspecionar o projeto, diagnosticar erros ou testar o código, EXECUTE a ferramenta `run_terminal_command` imediatamente e relate a saída.\n' +
+        '3. Busca Web: Use `web_search` para consultar informações e fontes na internet.',
+    };
+    contextMessages = [baseSystemPrompt, ...contextMessages];
+
     if (activePlan) {
       const planSystemPrompt = {
         role: 'system',
@@ -748,6 +1095,7 @@ function AppContent() {
       let loopCount = 0;
       const allEditedFiles: MessageEditedFile[] = [];
       const allToolCalls: MessageToolCall[] = [];
+      let currentBatchRefactor: { summary: string; files: MessageEditedFile[] } | undefined = undefined;
       let accumulatedAssistantText = '';
       let accumulatedReasoningText = '';
 
@@ -882,6 +1230,14 @@ function AppContent() {
           }
         }
 
+        // Process tool calls if any were returned
+        const detectedCalls = Object.values(toolCallsAccumulator).filter((c) => c && c.name);
+
+        // Se a iteração chamou generate_image, remove qualquer markdown de imagem acidental que o modelo tenha colocado antes da chamada da ferramenta
+        if (detectedCalls.some((c) => c.name === 'generate_image')) {
+          iterationText = iterationText.replace(/!\[[^\]]*\]\([^)]+\)/g, '').trim();
+        }
+
         // Store accumulated content across iterations
         if (iterationText) {
           accumulatedAssistantText = accumulatedAssistantText
@@ -894,8 +1250,6 @@ function AppContent() {
             : iterationReasoning;
         }
 
-        // Process tool calls if any were returned
-        const detectedCalls = Object.values(toolCallsAccumulator).filter((c) => c && c.name);
         if (detectedCalls.length > 0) {
           hasToolCallsToProcess = true;
 
@@ -947,9 +1301,10 @@ function AppContent() {
 
             let result = '';
             let editedFile: MessageEditedFile | undefined = undefined;
+            let execution: any = null;
 
             try {
-              const execution = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
+              execution = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
               result = execution.result;
               editedFile = execution.editedFile;
 
@@ -970,6 +1325,12 @@ function AppContent() {
             if (editedFile) {
               allEditedFiles.push(editedFile);
             }
+            if (execution?.editedFiles && execution.editedFiles.length > 0) {
+              allEditedFiles.push(...execution.editedFiles);
+            }
+            if (execution?.batchRefactor) {
+              currentBatchRefactor = execution.batchRefactor;
+            }
 
             toolResultMessages.push({
               role: 'tool',
@@ -989,6 +1350,7 @@ function AppContent() {
                     ? {
                         ...m,
                         editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
+                        batchRefactor: currentBatchRefactor,
                         toolCalls: [...allToolCalls],
                       }
                     : m
@@ -1051,6 +1413,13 @@ function AppContent() {
       title: 'Análise de Imagens',
       desc: 'Use o modelo Flash para anexar capturas de tela e obter diagnósticos.',
       model: 'z-ai/glm-5.3-flash' as ModelId,
+      planMode: false,
+    },
+    {
+      category: 'Terminal & Shell',
+      title: 'Terminal do Sistema',
+      desc: 'Peça para a IA executar comandos no bash (git status, ls -la, node -v) ou abra o terminal.',
+      model: 'z-ai/glm-5.3' as ModelId,
       planMode: false,
     },
     {
@@ -1132,6 +1501,8 @@ function AppContent() {
             setIsSidebarOpen(true);
           }}
           onCloseRepo={handleCloseRepo}
+          onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
+          isTerminalOpen={isTerminalOpen}
         />
 
         {/* Global Error Banner */}
@@ -1151,9 +1522,13 @@ function AppContent() {
         )}
 
         {/* Messages or Empty State */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [overflow-anchor:none]"
+        >
           {!activeConversation || activeConversation.messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center px-4 sm:px-6 max-w-2xl mx-auto text-center py-4 sm:py-8 relative animate-in fade-in duration-300">
+            <div className="h-full flex flex-col items-center justify-center px-4 sm:px-6 max-w-2xl mx-auto text-center py-4 sm:py-8 relative">
               <div className="mb-3 sm:mb-4 flex items-center justify-center">
                 <ClaudeLogo className="w-10 h-10 sm:w-12 sm:h-12 text-[#d97757]" />
               </div>
@@ -1217,6 +1592,11 @@ function AppContent() {
                   message={msg}
                   isStreaming={isStreaming && index === activeConversation.messages.length - 1}
                   onViewDiff={handleViewDiffForPath}
+                  onOpenTerminal={handleOpenTerminal}
+                  onOpenSourceControl={() => {
+                    setSidebarTab('source-control');
+                    setIsSidebarOpen(true);
+                  }}
                 />
               ))}
               <div ref={messagesEndRef} className="h-4" />
@@ -1236,6 +1616,16 @@ function AppContent() {
           onSelectReasoningEffort={handleSelectReasoningEffort}
           isPlanMode={isPlanMode}
           onTogglePlanMode={handleTogglePlanMode}
+        />
+
+        {/* Terminal Drawer Panel (Hardware-accelerated smooth slide drawer) */}
+        <TerminalPanel
+          isOpen={isTerminalOpen}
+          onClose={() => setIsTerminalOpen(false)}
+          entries={terminalEntries}
+          onExecuteCommand={handleExecuteTerminalCommand}
+          onClear={handleClearTerminal}
+          isRunning={isTerminalRunning}
         />
       </div>
 

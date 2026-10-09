@@ -43,21 +43,48 @@ export default async function handler(req: Request): Promise<Response> {
   const seed = Math.floor(Math.random() * 10000000);
   const cleanPrompt = prompt.trim();
 
-  // Endpoint do Pollinations com modelo turbo (Stable Diffusion Turbo - ultra rápido, gera em 1 a 2s)
+  // Endpoint do Pollinations com modelo FLUX (Black Forest Labs - alta qualidade estética)
   const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
     cleanPrompt
-  )}?width=${width}&height=${height}&model=turbo&nologo=true&seed=${seed}`;
+  )}?width=${width}&height=${height}&model=flux&nologo=true&seed=${seed}`;
 
-  // Aguarda a geração real da imagem na GPU antes de finalizar a ferramenta!
-  // Dessa forma, o orbe "shaping" (Criando a imagem…) permanece ativo na tela
-  // enquanto a imagem está sendo renderizada. Ao concluir, a imagem já está pronta no cache CDN.
-  try {
-    await fetch(imageUrl, {
-      headers: { 'User-Agent': 'SynapAI/1.0' },
-      signal: AbortSignal.timeout(12000),
-    });
-  } catch (err) {
-    console.warn('Pré-carregamento da imagem timeout/erro:', err);
+  // Aguarda a geração real da imagem na GPU antes de finalizar
+  // Faz polling até a Pollinations devolver uma imagem válida (não um erro)
+  let imageReady = false;
+  const maxAttempts = 5;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const checkRes = await fetch(imageUrl, {
+        headers: { 'User-Agent': 'SynapAI/1.0' },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (checkRes.ok) {
+        const contentType = checkRes.headers.get('content-type') || '';
+        const contentLength = parseInt(checkRes.headers.get('content-length') || '0', 10);
+
+        // Pollinations retorna image/jpeg quando pronto, ou text/html quando ainda gerando
+        if (contentType.startsWith('image/') && (contentLength === 0 || contentLength > 1000)) {
+          imageReady = true;
+          break;
+        }
+      }
+
+      // Se não tá pronto, espera 2s e tenta de novo
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } catch (err) {
+      console.warn(`Tentativa ${attempt + 1} falhou:`, err);
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
+  if (!imageReady) {
+    console.warn('Pollinations não respondeu em tempo hábil. Retornando URL mesmo assim (cliente fará polling).');
   }
 
   return new Response(
@@ -67,7 +94,7 @@ export default async function handler(req: Request): Promise<Response> {
       prompt: cleanPrompt,
       dimensions: { width, height },
       aspect_ratio: aspectRatio,
-      provider: 'Stable Diffusion Turbo',
+      provider: 'FLUX (Black Forest Labs)',
       markdown: `![${cleanPrompt.replace(/[\n\r]+/g, ' ')}](${imageUrl})`,
     }),
     {

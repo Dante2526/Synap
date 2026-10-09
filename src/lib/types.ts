@@ -60,6 +60,19 @@ export interface MessageEditedFile {
   changeId?: string;
 }
 
+export interface GitHubCommitItem {
+  sha: string;
+  short_sha: string;
+  message: string;
+  author: {
+    name: string;
+    login?: string;
+    avatar_url?: string;
+    date: string | null;
+  };
+  html_url: string;
+}
+
 export interface MessageToolCall {
   id: string;
   name: string;
@@ -79,6 +92,10 @@ export interface Message {
   reasoningEffort?: ReasoningEffort; // 'low' | 'high' | 'max'
   isPlanMode?: boolean;
   editedFiles?: MessageEditedFile[]; // arquivos editados pela IA nesta mensagem
+  batchRefactor?: {
+    summary: string;
+    files: MessageEditedFile[];
+  };
   toolCalls?: MessageToolCall[]; // histórico e status das chamadas de ferramentas executadas
 }
 

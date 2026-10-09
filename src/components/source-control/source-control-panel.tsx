@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   GitCommit,
   GitBranch,
@@ -12,10 +12,18 @@ import {
   Loader2,
   Trash2,
   Eye,
+  History,
+  GitFork,
+  RefreshCw,
+  Copy,
+  Clock,
+  Sparkles,
+  GitMerge,
 } from 'lucide-react';
-import { PendingChange, ActiveRepoState } from '../../lib/types';
+import { PendingChange, ActiveRepoState, GitHubCommitItem } from '../../lib/types';
 import { usePendingChanges } from '../../lib/pending-changes';
 import { commitStagedChanges } from '../../lib/github-commit';
+import { createRepoBranch, fetchRepoCommits } from '../../lib/github';
 import { DiffViewer } from './diff-viewer';
 
 interface SourceControlPanelProps {
@@ -23,12 +31,14 @@ interface SourceControlPanelProps {
   onOpenRepoList: () => void;
   onOpenSettings: () => void;
   onSelectChangeToView?: (change: PendingChange) => void;
+  onChangeBranch?: (branch: string) => void;
 }
 
 export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
   activeRepo,
   onOpenRepoList,
   onOpenSettings,
+  onChangeBranch,
 }) => {
   const {
     changes,
@@ -42,12 +52,29 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
     updateChangeContent,
   } = usePendingChanges();
 
+  // Tab: 'changes' (alterações pendentes) or 'history' (histórico de commits)
+  const [activeTab, setActiveTab] = useState<'changes' | 'history'>('changes');
+
+  // Commit Form State
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [commitSuccess, setCommitSuccess] = useState<{ sha: string; url: string } | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
   const [selectedChange, setSelectedChange] = useState<PendingChange | null>(null);
+
+  // New Branch Creation State
+  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [isBranchLoading, setIsBranchLoading] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
+  const [branchSuccess, setBranchSuccess] = useState<string | null>(null);
+
+  // Commit History State
+  const [commits, setCommits] = useState<GitHubCommitItem[]>([]);
+  const [isLoadingCommits, setIsLoadingCommits] = useState(false);
+  const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [copiedSha, setCopiedSha] = useState<string | null>(null);
 
   // Filter changes for current active repo
   const repoChanges = activeRepo
@@ -59,6 +86,35 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
   const unstagedChanges = repoChanges.filter((c) => !c.staged);
   const stagedChanges = repoChanges.filter((c) => c.staged);
 
+  // Fetch commit history
+  const loadCommits = useCallback(async () => {
+    if (!activeRepo) return;
+    setIsLoadingCommits(true);
+    setCommitsError(null);
+    try {
+      const data = await fetchRepoCommits(
+        undefined,
+        activeRepo.owner,
+        activeRepo.repo,
+        activeRepo.branch,
+        30
+      );
+      setCommits(data);
+    } catch (err: any) {
+      console.error('Erro ao carregar commits:', err);
+      setCommitsError(err?.message || 'Falha ao buscar histórico de commits.');
+    } finally {
+      setIsLoadingCommits(false);
+    }
+  }, [activeRepo]);
+
+  // Load commits when switching to history tab
+  useEffect(() => {
+    if (activeTab === 'history' && activeRepo) {
+      loadCommits();
+    }
+  }, [activeTab, activeRepo?.fullName, activeRepo?.branch, loadCommits]);
+
   const handleCommit = async () => {
     if (!activeRepo) return;
     if (!commitMessage.trim()) {
@@ -66,7 +122,6 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
       return;
     }
 
-    // If nothing staged, stage all changes automatically for convenient single-click commit
     const changesToCommit = stagedChanges.length > 0 ? stagedChanges : repoChanges;
     if (changesToCommit.length === 0) {
       setCommitError('Nenhuma alteração para commitar.');
@@ -93,6 +148,9 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
         sha: result.sha.substring(0, 7),
         url: result.html_url,
       });
+
+      // Reload commits if user is in history or will switch to it
+      loadCommits();
     } catch (err: any) {
       console.error('Commit error:', err);
       let msg = err?.message || 'Falha ao realizar commit no GitHub.';
@@ -109,6 +167,68 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
     if (!activeRepo) return;
     await discardAll(activeRepo.fullName, activeRepo.branch);
     setConfirmDiscardAll(false);
+  };
+
+  const handleCreateBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeRepo) return;
+    const clean = newBranchName.trim().replace(/^refs\/heads\//, '').replace(/\s+/g, '-');
+    if (!clean) {
+      setBranchError('Informe o nome da nova branch.');
+      return;
+    }
+
+    setIsBranchLoading(true);
+    setBranchError(null);
+    try {
+      const res = await createRepoBranch(
+        undefined,
+        activeRepo.owner,
+        activeRepo.repo,
+        clean,
+        activeRepo.branch
+      );
+      setBranchSuccess(`Branch '${res.branch}' criada com sucesso!`);
+      setNewBranchName('');
+      setIsCreatingBranch(false);
+
+      if (onChangeBranch) {
+        onChangeBranch(res.branch);
+      }
+
+      setTimeout(() => setBranchSuccess(null), 4000);
+    } catch (err: any) {
+      console.error('Erro ao criar branch:', err);
+      setBranchError(err?.message || 'Falha ao criar branch no GitHub.');
+    } finally {
+      setIsBranchLoading(false);
+    }
+  };
+
+  const handleCopySha = (sha: string) => {
+    navigator.clipboard?.writeText(sha);
+    setCopiedSha(sha);
+    setTimeout(() => setCopiedSha(null), 2000);
+  };
+
+  const formatRelativeTime = (dateStr: string | null) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      const diffMs = Date.now() - date.getTime();
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffMin < 1) return 'agora há pouco';
+      if (diffMin < 60) return `há ${diffMin}m`;
+      if (diffHours < 24) return `há ${diffHours}h`;
+      if (diffDays === 1) return 'ontem';
+      if (diffDays < 30) return `há ${diffDays} dias`;
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    } catch {
+      return '';
+    }
   };
 
   return (
@@ -135,7 +255,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
           <div>
             <h3 className="text-sm font-medium text-[#f3efe6]">Nenhum repositório neste chat</h3>
             <p className="text-xs text-[#8c867a] mt-1 max-w-xs">
-              Vincule um repositório GitHub a esta conversa para usar o Source Control e permitir edições pela IA.
+              Vincule um repositório GitHub a esta conversa para usar o Source Control, criar branches e commitar.
             </p>
           </div>
           <button
@@ -148,198 +268,470 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-y-auto">
-          {/* Active Repo Info Card */}
-          <div className="p-3 bg-[#201e1a] border-b border-[#2d2a25] flex items-center justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-[#f3efe6] truncate">
-                <FolderGit2 className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
-                <span className="truncate">{activeRepo.fullName}</span>
+          {/* Active Repo Info Card with New Branch button */}
+          <div className="p-3 bg-[#201e1a] border-b border-[#2d2a25] flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-[#f3efe6] truncate">
+                  <FolderGit2 className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
+                  <span className="truncate">{activeRepo.fullName}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] font-mono text-[#8c867a] mt-0.5">
+                  <GitBranch className="w-3 h-3 text-[#d97757]" />
+                  <span className="text-[#d8d3c9] font-semibold">{activeRepo.branch}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1 text-[11px] font-mono text-[#8c867a] mt-0.5">
-                <GitBranch className="w-3 h-3 text-[#d97757]" />
-                <span>{activeRepo.branch}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingBranch((prev) => !prev)}
+                  title="Criar nova branch a partir desta"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#2d2a23] hover:bg-[#3b362c] text-[#f09a7d] hover:text-white border border-[#484133] text-[11px] font-medium transition cursor-pointer shadow-2xs"
+                >
+                  <GitFork className="w-3 h-3" />
+                  <span>+ Branch</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenRepoList}
+                  className="text-[11px] text-[#8c867a] hover:text-[#d97757] hover:underline cursor-pointer"
+                >
+                  Trocar
+                </button>
               </div>
             </div>
+
+            {/* Inline Branch Creation Form */}
+            {isCreatingBranch && (
+              <form
+                onSubmit={handleCreateBranch}
+                className="mt-1 p-2.5 rounded-xl bg-[#171613] border border-[#3e392f] space-y-2"
+              >
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-medium text-[#f3efe6] flex items-center gap-1">
+                    <GitFork className="w-3 h-3 text-[#d97757]" /> Nova Branch
+                  </span>
+                  <span className="text-[10px] text-[#8c867a] font-mono">
+                    de: {activeRepo.branch}
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={newBranchName}
+                  onChange={(e) => setNewBranchName(e.target.value)}
+                  placeholder="ex: feature/melhorias-ui"
+                  autoFocus
+                  disabled={isBranchLoading}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#201e1a] border border-[#3f3b33] text-xs text-[#f3efe6] placeholder-[#6b665c] font-mono focus:outline-hidden focus:border-[#d97757]"
+                />
+                {branchError && (
+                  <p className="text-[10px] text-rose-400 leading-tight">{branchError}</p>
+                )}
+                <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingBranch(false);
+                      setBranchError(null);
+                    }}
+                    disabled={isBranchLoading}
+                    className="px-2.5 py-1 rounded text-[11px] text-[#8c867a] hover:text-[#f3efe6] cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isBranchLoading || !newBranchName.trim()}
+                    className="flex items-center gap-1 px-3 py-1 rounded bg-[#d97757] hover:bg-[#c26647] text-white text-[11px] font-medium transition cursor-pointer disabled:opacity-40"
+                  >
+                    {isBranchLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                    <span>Criar e Trocar</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {branchSuccess && (
+              <div className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-[11px] text-emerald-300 flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>{branchSuccess}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Subtab navigation: Alterações vs Histórico */}
+          <div className="flex items-center border-b border-[#2d2a25] bg-[#1a1815] px-2">
             <button
               type="button"
-              onClick={onOpenRepoList}
-              className="text-[11px] text-[#d97757] hover:underline shrink-0 ml-2 cursor-pointer"
+              onClick={() => setActiveTab('changes')}
+              className={`flex-1 py-2 text-xs font-medium text-center border-b-2 transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'changes'
+                  ? 'border-[#d97757] text-[#f3efe6] font-semibold'
+                  : 'border-transparent text-[#8c867a] hover:text-[#c4bfb6]'
+              }`}
             >
-              Trocar
+              <GitCommit className="w-3.5 h-3.5" />
+              <span>Alterações</span>
+              {repoChanges.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#d97757]/20 text-[#f09a7d] font-mono">
+                  {repoChanges.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`flex-1 py-2 text-xs font-medium text-center border-b-2 transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'history'
+                  ? 'border-[#d97757] text-[#f3efe6] font-semibold'
+                  : 'border-transparent text-[#8c867a] hover:text-[#c4bfb6]'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Histórico de Commits</span>
             </button>
           </div>
 
-          {/* Commit Message Box */}
-          <div className="p-3 border-b border-[#2d2a25] space-y-2 bg-[#1b1a17]">
-            <div className="relative">
-              <textarea
-                value={commitMessage}
-                onChange={(e) => setCommitMessage(e.target.value)}
-                placeholder="Mensagem de commit (Cmd/Ctrl + Enter para enviar)"
-                rows={2}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    handleCommit();
-                  }
-                }}
-                disabled={isCommitting || repoChanges.length === 0}
-                className="w-full p-2.5 rounded-xl bg-[#131210] border border-[#3b3831] text-xs text-[#f3efe6] placeholder-[#6b665c] focus:outline-hidden focus:border-[#d97757] resize-none disabled:opacity-50"
-              />
-            </div>
+          {/* TAB 1: PENDING CHANGES */}
+          {activeTab === 'changes' && (
+            <div className="flex-1 flex flex-col">
+              {/* Commit Message Box */}
+              <div className="p-3 border-b border-[#2d2a25] space-y-2 bg-[#1b1a17]">
+                <div className="relative">
+                  <textarea
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    placeholder="Mensagem de commit (Cmd/Ctrl + Enter para enviar)"
+                    rows={2}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCommit();
+                      }
+                    }}
+                    disabled={isCommitting || repoChanges.length === 0}
+                    className="w-full p-2.5 rounded-xl bg-[#131210] border border-[#3b3831] text-xs text-[#f3efe6] placeholder-[#6b665c] focus:outline-hidden focus:border-[#d97757] resize-none disabled:opacity-50"
+                  />
+                </div>
 
-            {/* Commit and Discard All buttons */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCommit}
-                disabled={isCommitting || repoChanges.length === 0 || !commitMessage.trim()}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-[#d97757] hover:bg-[#c26647] text-white text-xs font-medium transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
-              >
-                {isCommitting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Commitando...</span>
-                  </>
-                ) : (
-                  <>
-                    <GitCommit className="w-3.5 h-3.5" />
-                    <span>
-                      Commit {stagedChanges.length > 0 ? `(${stagedChanges.length})` : `(${repoChanges.length})`}
-                    </span>
-                  </>
-                )}
-              </button>
+                {/* Commit and Discard All buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCommit}
+                    disabled={isCommitting || repoChanges.length === 0 || !commitMessage.trim()}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-[#d97757] hover:bg-[#c26647] text-white text-xs font-medium transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                  >
+                    {isCommitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Criando Commit…</span>
+                      </>
+                    ) : (
+                      <>
+                        <GitCommit className="w-3.5 h-3.5" />
+                        <span>
+                          {stagedChanges.length > 0
+                            ? `Commit (${stagedChanges.length})`
+                            : repoChanges.length > 0
+                            ? `Commit Tudo (${repoChanges.length})`
+                            : 'Commit'}
+                        </span>
+                      </>
+                    )}
+                  </button>
 
-              {repoChanges.length > 0 && (
-                <>
-                  {!confirmDiscardAll ? (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDiscardAll(true)}
-                      title="Descartar todas as alterações pendentes"
-                      className="p-1.5 rounded-lg text-[#a39d93] hover:text-rose-400 hover:bg-[#282622] transition cursor-pointer border border-[#3b3831]"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1 bg-[#3a1d1d] border border-rose-800 rounded-lg px-2 py-1">
-                      <span className="text-[10px] text-rose-300">Descartar tudo?</span>
-                      <button
-                        onClick={handleDiscardAll}
-                        aria-label="Confirmar descarte total"
-                        className="p-0.5 text-rose-400 hover:text-white cursor-pointer"
-                      >
-                        <Check className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDiscardAll(false)}
-                        aria-label="Cancelar"
-                        className="p-0.5 text-zinc-400 hover:text-white cursor-pointer"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
+                  {/* Discard all changes button */}
+                  {repoChanges.length > 0 && (
+                    <div className="relative">
+                      {confirmDiscardAll ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={handleDiscardAll}
+                            title="Confirmar descarte de todas as alterações"
+                            className="px-2 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-medium transition cursor-pointer"
+                          >
+                            Confirmar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDiscardAll(false)}
+                            className="px-2 py-1.5 rounded-lg bg-[#2e2a22] text-[#c4bfb6] text-[11px] hover:bg-[#38332a] cursor-pointer"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDiscardAll(true)}
+                          title="Descartar todas as alterações"
+                          className="p-1.5 rounded-lg bg-[#24211d] hover:bg-rose-950/40 text-[#8c867a] hover:text-rose-400 border border-[#3b3831] hover:border-rose-900/40 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
-                </>
-              )}
-            </div>
-
-            {/* Success notification */}
-            {commitSuccess && (
-              <div className="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-800/40 text-xs text-emerald-300 flex items-start justify-between gap-2 animate-in fade-in">
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                  <span>
-                    Commit <span className="font-mono">{commitSuccess.sha}</span> criado com sucesso!
-                  </span>
                 </div>
-                <a
-                  href={commitSuccess.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline shrink-0"
-                >
-                  <span>Ver</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            )}
 
-            {/* Error notice */}
-            {commitError && (
-              <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-800/40 text-xs text-rose-300 flex items-start gap-1.5 animate-in fade-in">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-                <span className="leading-tight">{commitError}</span>
-              </div>
-            )}
-          </div>
+                {/* Staging helper buttons */}
+                {repoChanges.length > 0 && (
+                  <div className="flex items-center justify-between text-[11px] text-[#8c867a] pt-1">
+                    <span>
+                      {stagedChanges.length} em stage, {unstagedChanges.length} pendente(s)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {unstagedChanges.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => stageAll(activeRepo.fullName, activeRepo.branch)}
+                          className="hover:text-[#f3efe6] cursor-pointer"
+                        >
+                          Stage tudo
+                        </button>
+                      )}
+                      {stagedChanges.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => unstageAll(activeRepo.fullName, activeRepo.branch)}
+                          className="hover:text-[#f3efe6] cursor-pointer"
+                        >
+                          Unstage tudo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-          {/* Staged Changes Section */}
-          {stagedChanges.length > 0 && (
-            <div className="border-b border-[#2d2a25]">
-              <div className="px-3 py-1.5 bg-[#1f1d19] flex items-center justify-between text-[11px] font-mono font-medium text-[#b8b3a8]">
-                <span>STAGED CHANGES ({stagedChanges.length})</span>
-                <button
-                  type="button"
-                  onClick={() => unstageAll(activeRepo.fullName, activeRepo.branch)}
-                  title="Unstage all"
-                  className="p-0.5 hover:text-white text-[#8c867a] cursor-pointer"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
+                {/* Success notification */}
+                {commitSuccess && (
+                  <div className="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-800/40 text-xs text-emerald-300 flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                      <span>
+                        Commit <span className="font-mono">{commitSuccess.sha}</span> criado com sucesso!
+                      </span>
+                    </div>
+                    <a
+                      href={commitSuccess.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline shrink-0"
+                    >
+                      <span>Ver</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+
+                {/* Error notice */}
+                {commitError && (
+                  <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-800/40 text-xs text-rose-300 flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                    <span className="leading-tight">{commitError}</span>
+                  </div>
+                )}
               </div>
-              <div className="divide-y divide-[#262420]">
-                {stagedChanges.map((change) => (
-                  <ChangeRow
-                    key={change.id}
-                    change={change}
-                    onViewDiff={() => setSelectedChange(change)}
-                    onToggleStage={() => unstageChange(change.id)}
-                    onDiscard={() => discardChange(change.id)}
-                  />
-                ))}
+
+              {/* Staged Changes Section */}
+              {stagedChanges.length > 0 && (
+                <div className="border-b border-[#2d2a25]">
+                  <div className="px-3 py-1.5 bg-[#1f1d19] flex items-center justify-between text-[11px] font-mono font-medium text-[#b8b3a8]">
+                    <span>STAGED CHANGES ({stagedChanges.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => unstageAll(activeRepo.fullName, activeRepo.branch)}
+                      title="Unstage all"
+                      className="p-0.5 hover:text-white text-[#8c867a] cursor-pointer"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="divide-y divide-[#262420]">
+                    {stagedChanges.map((change) => (
+                      <ChangeRow
+                        key={change.id}
+                        change={change}
+                        onViewDiff={() => setSelectedChange(change)}
+                        onToggleStage={() => unstageChange(change.id)}
+                        onDiscard={() => discardChange(change.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Unstaged Changes Section */}
+              <div>
+                <div className="px-3 py-1.5 bg-[#1f1d19] flex items-center justify-between text-[11px] font-mono font-medium text-[#b8b3a8]">
+                  <span>CHANGES ({unstagedChanges.length})</span>
+                  {unstagedChanges.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => stageAll(activeRepo.fullName, activeRepo.branch)}
+                      title="Stage all"
+                      className="p-0.5 hover:text-white text-[#8c867a] cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {unstagedChanges.length === 0 && stagedChanges.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-[#8c867a]">
+                    <p>Nenhuma mudança pendente.</p>
+                    <p className="mt-1 text-[11px] text-[#6b665c]">
+                      Peça à IA para editar ou criar arquivos no chat — as alterações aparecerão aqui para revisão.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#262420]">
+                    {unstagedChanges.map((change) => (
+                      <ChangeRow
+                        key={change.id}
+                        change={change}
+                        onViewDiff={() => setSelectedChange(change)}
+                        onToggleStage={() => stageChange(change.id)}
+                        onDiscard={() => discardChange(change.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Unstaged Changes Section */}
-          <div>
-            <div className="px-3 py-1.5 bg-[#1f1d19] flex items-center justify-between text-[11px] font-mono font-medium text-[#b8b3a8]">
-              <span>CHANGES ({unstagedChanges.length})</span>
-              {unstagedChanges.length > 0 && (
+          {/* TAB 2: HISTÓRICO DE COMMITS */}
+          {activeTab === 'history' && (
+            <div className="flex-1 flex flex-col">
+              <div className="p-2.5 bg-[#1f1d19] border-b border-[#2d2a25] flex items-center justify-between text-xs">
+                <span className="text-[#8c867a] flex items-center gap-1.5 font-medium">
+                  <History className="w-3.5 h-3.5 text-[#d97757]" />
+                  <span>Commits recentes em </span>
+                  <span className="font-mono text-[#f3efe6] font-semibold">{activeRepo.branch}</span>
+                </span>
                 <button
                   type="button"
-                  onClick={() => stageAll(activeRepo.fullName, activeRepo.branch)}
-                  title="Stage all"
-                  className="p-0.5 hover:text-white text-[#8c867a] cursor-pointer"
+                  onClick={loadCommits}
+                  disabled={isLoadingCommits}
+                  title="Atualizar commits"
+                  className="p-1 rounded text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#2b2823] transition cursor-pointer"
                 >
-                  <Plus className="w-3 h-3" />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCommits ? 'animate-spin text-[#d97757]' : ''}`} />
                 </button>
+              </div>
+
+              {isLoadingCommits ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-2 text-[#8c867a]">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#d97757]" />
+                  <span className="text-xs">Buscando histórico no GitHub…</span>
+                </div>
+              ) : commitsError ? (
+                <div className="p-4 m-3 rounded-xl bg-rose-950/40 border border-rose-900/40 text-xs text-rose-300 space-y-2">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Não foi possível carregar os commits</span>
+                  </div>
+                  <p className="text-[11px] text-rose-300/80 leading-relaxed">{commitsError}</p>
+                  <button
+                    type="button"
+                    onClick={loadCommits}
+                    className="px-2.5 py-1 rounded bg-[#2e2a22] hover:bg-[#3d372c] text-white text-[11px] font-medium transition cursor-pointer"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              ) : commits.length === 0 ? (
+                <div className="p-6 text-center text-xs text-[#8c867a]">
+                  <History className="w-8 h-8 text-[#544f45] mx-auto mb-2" />
+                  <p>Nenhum commit encontrado para esta branch.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#262420] overflow-y-auto">
+                  {commits.map((c) => {
+                    const firstLine = c.message.split('\n')[0];
+                    const hasMore = c.message.trim().split('\n').length > 1;
+
+                    return (
+                      <div
+                        key={c.sha}
+                        className="p-3 hover:bg-[#211f1b] transition space-y-1.5 group"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-[#f3efe6] leading-snug break-words">
+                              {firstLine}
+                            </p>
+                            {hasMore && (
+                              <p className="text-[11px] text-[#8c867a] mt-0.5 line-clamp-2">
+                                {c.message.trim().split('\n').slice(1).join(' ').trim()}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleCopySha(c.sha)}
+                              title="Copiar SHA completo"
+                              className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-[#2a2721] hover:bg-[#38332a] text-[#f09a7d] border border-[#3e392f] transition cursor-pointer flex items-center gap-1"
+                            >
+                              {copiedSha === c.sha ? (
+                                <>
+                                  <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                  <span className="text-emerald-400">Copiado</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>{c.short_sha}</span>
+                                  <Copy className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
+                                </>
+                              )}
+                            </button>
+
+                            <a
+                              href={c.html_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Ver commit no GitHub"
+                              className="p-1 rounded text-[#8c867a] hover:text-[#d97757] hover:bg-[#2b2823] transition"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Author & Date metadata */}
+                        <div className="flex items-center justify-between text-[11px] text-[#736e65]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {c.author.avatar_url ? (
+                              <img
+                                src={c.author.avatar_url}
+                                alt={c.author.name}
+                                className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                              />
+                            ) : (
+                              <div className="w-3.5 h-3.5 rounded-full bg-[#353128] text-[#d97757] text-[8px] flex items-center justify-center font-bold">
+                                {c.author.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="truncate text-[#a39d93]">{c.author.name}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0 text-[10px]">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>{formatRelativeTime(c.author.date)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-
-            {unstagedChanges.length === 0 && stagedChanges.length === 0 ? (
-              <div className="p-6 text-center text-xs text-[#8c867a]">
-                <p>Nenhuma mudança pendente.</p>
-                <p className="mt-1 text-[11px] text-[#6b665c]">
-                  Peça à IA para editar ou criar arquivos no chat — as alterações aparecerão aqui para revisão.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-[#262420]">
-                {unstagedChanges.map((change) => (
-                  <ChangeRow
-                    key={change.id}
-                    change={change}
-                    onViewDiff={() => setSelectedChange(change)}
-                    onToggleStage={() => stageChange(change.id)}
-                    onDiscard={() => discardChange(change.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
 

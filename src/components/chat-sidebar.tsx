@@ -199,6 +199,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
               setViewingExplorer(false);
             }}
             onOpenSettings={onOpenSettings}
+            onChangeBranch={onChangeBranch}
           />
         ) : (
           <>

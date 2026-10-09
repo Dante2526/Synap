@@ -125,11 +125,45 @@ export async function searchCode(
   _unused?: any,
   query?: string,
   owner?: string,
-  repo?: string
-): Promise<Array<{ name: string; path: string; html_url: string }>> {
+  repo?: string,
+  path?: string,
+  extension?: string
+): Promise<Array<{ name: string; path: string; html_url: string; snippets?: string[] }>> {
   if (!query) return [];
-  const params: Record<string, string> = { q: query };
+  const params: Record<string, string> = { q: query.trim() };
   if (owner) params.owner = owner;
   if (repo) params.repo = repo;
-  return callGitHubApi<Array<{ name: string; path: string; html_url: string }>>('search', params);
+  if (path) params.path = path;
+  if (extension) params.extension = extension;
+  return callGitHubApi<Array<{ name: string; path: string; html_url: string; snippets?: string[] }>>('search', params);
+}
+
+export async function createRepoBranch(
+  customPat?: string,
+  owner?: string,
+  repo?: string,
+  branch?: string,
+  fromBranch?: string
+): Promise<{ branch: string; ref: string; sha: string }> {
+  if (!owner || !repo || !branch) throw new Error('Parâmetros obrigatórios ausentes.');
+  return callGitHubApi<{ branch: string; ref: string; sha: string }>(
+    'create_branch',
+    {},
+    'POST',
+    { owner, repo, branch, fromBranch },
+    customPat
+  );
+}
+
+export async function fetchRepoCommits(
+  customPat?: string,
+  owner?: string,
+  repo?: string,
+  branch?: string,
+  perPage: number = 25
+): Promise<import('./types').GitHubCommitItem[]> {
+  if (!owner || !repo) return [];
+  const params: Record<string, string> = { owner, repo, per_page: String(perPage) };
+  if (branch) params.branch = branch;
+  return callGitHubApi<import('./types').GitHubCommitItem[]>('commits', params, 'GET', undefined, customPat);
 }
