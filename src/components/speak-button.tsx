@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { Volume2, VolumeX, Loader2, Info } from 'lucide-react';
 import { cleanTextForSpeech, getBestPortugueseVoice } from '../lib/speech';
+import { loadSettings } from '../lib/storage';
 
 interface SpeakButtonProps {
   text: string;
 }
 
+// Cache em memória para não fazer requisições redundantes se a rota estiver indisponível
+let isTtsServiceAvailable = true;
+
 export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -48,7 +53,14 @@ export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
       return;
     }
 
-    if (!text.trim()) return;
+    const clean = cleanTextForSpeech(text);
+    if (!clean) return;
+
+    // Se já sabemos que o serviço backend está offline, usa fala nativa direto
+    if (!isTtsServiceAvailable) {
+      fallbackToWebSpeech(clean);
+      return;
+    }
 
     // Check if we already have the audio blob cached for this message
     if (audioUrlRef.current) {
@@ -61,54 +73,83 @@ export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
         await audio.play();
         return;
       } catch (err) {
-        console.warn('Cached audio playback failed, generating new:', err);
+        console.warn('Cached audio playback failed, regenerating:', err);
       }
     }
 
     setIsLoading(true);
+    setNotice(null);
+
+    // Get preferred voice from settings (default Francisca - Microsoft Edge Neural pt-BR)
+    const settings = loadSettings();
+    const preferredVoice = settings.speechVoice || 'pt-BR-FranciscaNeural';
 
     try {
-      // 1. Try high-fidelity Neural TTS from backend (/api/tts)
+      // 1. Try high-fidelity Neural Edge TTS / Gemini from backend (/api/tts)
       const res = await fetch('/api/tts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg, audio/wav, application/json',
+        },
         body: JSON.stringify({
-          text,
-          voice: 'pt-BR-FranciscaNeural', // Best natural Portuguese neural voice
+          text: clean,
+          voice: preferredVoice,
         }),
       });
 
       if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        audioUrlRef.current = url;
+        isTtsServiceAvailable = true;
+        const contentType = res.headers.get('content-type') || '';
+        let playableUrl = '';
 
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => setIsPlaying(false);
-        audio.onerror = () => setIsPlaying(false);
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data.audio) {
+            playableUrl = `data:${data.mimeType || 'audio/mpeg'};base64,${data.audio}`;
+          }
+        } else {
+          const blob = await res.blob();
+          playableUrl = URL.createObjectURL(blob);
+          audioUrlRef.current = playableUrl;
+        }
 
-        setIsLoading(false);
-        setIsPlaying(true);
-        await audio.play();
-        return;
+        if (playableUrl) {
+          const audio = new Audio(playableUrl);
+          audioRef.current = audio;
+          audio.onended = () => setIsPlaying(false);
+          audio.onerror = (e) => {
+            console.warn('Audio playback error, falling back to browser speech:', e);
+            fallbackToWebSpeech(clean);
+          };
+
+          setIsLoading(false);
+          setIsPlaying(true);
+          await audio.play();
+          return;
+        }
+      } else {
+        const errJson = await res.json().catch(() => null);
+        console.warn('Neural TTS returned error:', errJson?.error || res.statusText);
       }
     } catch (err) {
       console.warn('Neural TTS endpoint unavailable, falling back to browser speech:', err);
     }
 
     // 2. Fallback to Web Speech API if endpoint is offline or fails
+    fallbackToWebSpeech(clean);
+  };
+
+  const fallbackToWebSpeech = (clean: string) => {
     setIsLoading(false);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
-      const clean = cleanTextForSpeech(text);
-      if (!clean) return;
 
       const utterance = new SpeechSynthesisUtterance(clean);
       const best = getBestPortugueseVoice();
       if (best) utterance.voice = best;
       utterance.lang = 'pt-BR';
-      utterance.rate = 1.06;
+      utterance.rate = 1.05;
       utterance.pitch = 1.0;
 
       utterance.onstart = () => setIsPlaying(true);
@@ -120,44 +161,54 @@ export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
   };
 
   return (
-    <button
-      onClick={handleToggleSpeak}
-      disabled={isLoading && !isPlaying}
-      aria-label={isPlaying ? 'Parar leitura em voz alta' : 'Ouvir resposta com voz natural humana'}
-      title={
-        isPlaying
-          ? 'Parar leitura em voz alta'
-          : 'Ouvir com voz neural natural (Francisca - pt-BR)'
-      }
-      className={`px-2 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
-        isPlaying
-          ? 'bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40'
-          : isLoading
-          ? 'bg-[#282622] text-[#d97757] border border-[#3d3a33]'
-          : 'text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#282622]'
-      }`}
-    >
-      {isLoading ? (
-        <>
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#d97757]" />
-          <span className="text-[11px] font-medium text-[#f09a7d]">Carregando voz...</span>
-        </>
-      ) : isPlaying ? (
-        <>
-          <span className="flex items-center gap-0.5 h-3">
-            <span className="w-0.5 h-2 bg-[#d97757] animate-pulse" style={{ animationDelay: '0ms' }} />
-            <span className="w-0.5 h-3 bg-[#f09a7d] animate-pulse" style={{ animationDelay: '150ms' }} />
-            <span className="w-0.5 h-1.5 bg-[#d97757] animate-pulse" style={{ animationDelay: '300ms' }} />
-          </span>
-          <VolumeX className="w-3.5 h-3.5 text-[#d97757]" />
-          <span className="text-[11px] font-medium text-[#f09a7d]">Parar</span>
-        </>
-      ) : (
-        <>
-          <Volume2 className="w-3.5 h-3.5" />
-          <span className="text-[11px]">Ouvir</span>
-        </>
+    <div className="relative inline-flex items-center">
+      <button
+        onClick={handleToggleSpeak}
+        disabled={isLoading && !isPlaying}
+        aria-label={isPlaying ? 'Parar leitura em voz alta' : 'Ouvir resposta com voz neural humana'}
+        title={
+          isPlaying
+            ? 'Parar leitura em voz alta'
+            : 'Ouvir com voz neural natural de estúdio (Gemini pt-BR)'
+        }
+        className={`px-2 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+          isPlaying
+            ? 'bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40'
+            : isLoading
+            ? 'bg-[#282622] text-[#d97757] border border-[#3d3a33]'
+            : 'text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#282622]'
+        }`}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#d97757]" />
+            <span className="text-[11px] font-medium text-[#f09a7d]">Gerando voz neural...</span>
+          </>
+        ) : isPlaying ? (
+          <>
+            <span className="flex items-center gap-0.5 h-3">
+              <span className="w-0.5 h-2 bg-[#d97757] animate-pulse" style={{ animationDelay: '0ms' }} />
+              <span className="w-0.5 h-3 bg-[#f09a7d] animate-pulse" style={{ animationDelay: '150ms' }} />
+              <span className="w-0.5 h-1.5 bg-[#d97757] animate-pulse" style={{ animationDelay: '300ms' }} />
+            </span>
+            <VolumeX className="w-3.5 h-3.5 text-[#d97757]" />
+            <span className="text-[11px] font-medium text-[#f09a7d]">Parar</span>
+          </>
+        ) : (
+          <>
+            <Volume2 className="w-3.5 h-3.5" />
+            <span className="text-[11px]">Ouvir</span>
+          </>
+        )}
+      </button>
+
+      {/* Warning / status tooltip when fallback is active */}
+      {notice && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-20 w-64 p-2 rounded-lg bg-[#1f1d19] border border-[#443e33] text-[11px] text-[#e0a96d] shadow-xl flex items-start gap-1.5 animate-in fade-in slide-in-from-bottom-1">
+          <Info className="w-3.5 h-3.5 text-[#d97757] shrink-0 mt-0.5" />
+          <span className="leading-tight">{notice}</span>
+        </div>
       )}
-    </button>
+    </div>
   );
 };

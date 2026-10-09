@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   saveHistoryLocally: true,
   voiceEnabled: true,
   darkMode: true,
+  speechVoice: 'pt-BR-FranciscaNeural',
   speechRate: 1.0,
 };
 
@@ -42,7 +43,11 @@ export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (!parsed.speechVoice) {
+      parsed.speechVoice = 'pt-BR-FranciscaNeural';
+    }
+    return parsed;
   } catch (error) {
     console.error('Failed to load settings from localStorage:', error);
     return DEFAULT_SETTINGS;

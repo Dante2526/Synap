@@ -14,7 +14,7 @@ export default async function handler(req: Request) {
   if (!apiKey || apiKey === 'sua_key_aqui' || apiKey === 'nvapi-your-key-here' || apiKey.trim() === '') {
     return new Response(
       JSON.stringify({
-        error: 'NVIDIA_API_KEY não configurada na Vercel. Por favor, adicione a variável NVIDIA_API_KEY em Settings > Environment Variables no painel da Vercel.',
+        error: 'NVIDIA_API_KEY não configurada. Por favor, adicione sua chave NVIDIA no arquivo .env.local ou nas Environment Variables da Vercel.',
       }),
       {
         status: 401,
@@ -116,6 +116,7 @@ export default async function handler(req: Request) {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error: any) {

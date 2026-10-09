@@ -28,6 +28,7 @@ export interface Conversation {
   updatedAt: number;
   model: string;
   reasoningEffort: 'low' | 'high' | 'max';
+  isPlanMode?: boolean;
 }
 
 export type ModelId = 'z-ai/glm-5.3' | 'z-ai/glm-5.3-flash';

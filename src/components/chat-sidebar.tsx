@@ -173,7 +173,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                       </form>
                     ) : (
                       <div className="truncate flex-1">
-                        <div className="truncate">{conv.title}</div>
+                        <div className="truncate flex items-center gap-1.5">
+                          <span className="truncate">{conv.title}</span>
+                          {(conv.isPlanMode || conv.messages?.some((m) => m.isPlanMode)) && (
+                            <span className="flex-shrink-0 text-[9px] px-1.5 py-0.2 rounded bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/35 font-mono font-medium">
+                              Plano
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-[#736e65] font-normal">
                           {formatDate(conv.updatedAt)}
                         </div>

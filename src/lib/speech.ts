@@ -1,17 +1,62 @@
 /**
  * Sistema de Síntese de Voz (TTS) Neural de Alta Fidelidade
- * Utiliza o modelo neural Gemini 3.8 Flash Lite TTS com fallback automático para Web Speech API.
+ * Utiliza Microsoft Edge TTS (sem necessidade de chave de API) com vozes em português do Brasil,
+ * com suporte opcional a Google Gemini TTS e fallback automático para Web Speech API.
  */
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentOnEndCallback: (() => void) | null = null;
 
-export const NEURAL_VOICES = [
-  { id: 'Kore', name: 'Kore (Feminina Suave - Natural)', gender: 'feminino' },
-  { id: 'Zephyr', name: 'Zephyr (Feminina Expressiva)', gender: 'feminino' },
-  { id: 'Puck', name: 'Puck (Jovem e Amigável)', gender: 'neutro' },
-  { id: 'Fenrir', name: 'Fenrir (Masculina Encorpada)', gender: 'masculino' },
-  { id: 'Charon', name: 'Charon (Masculina Madura)', gender: 'masculino' },
+export interface NeuralVoice {
+  id: string;
+  name: string;
+  gender: 'feminino' | 'masculino';
+  description: string;
+  tag: string;
+  engine?: 'edge-tts' | 'gemini';
+}
+
+export const NEURAL_VOICES: readonly NeuralVoice[] = [
+  {
+    id: 'pt-BR-FranciscaNeural',
+    name: 'Francisca (Feminina Expressiva & Fluente)',
+    gender: 'feminino',
+    description: 'Microsoft Edge Neural — Voz brasileira calorosa e autêntica, 100% gratuita sem chave de API',
+    tag: 'Recomendada (Edge TTS)',
+    engine: 'edge-tts',
+  },
+  {
+    id: 'pt-BR-AntonioNeural',
+    name: 'Antonio (Masculina Clara & Dinâmica)',
+    gender: 'masculino',
+    description: 'Microsoft Edge Neural — Tom amigável e dicção brasileira impecável, sem chave de API',
+    tag: 'Edge TTS',
+    engine: 'edge-tts',
+  },
+  {
+    id: 'pt-BR-ThalitaMultilingualNeural',
+    name: 'Thalita (Feminina Serena & Moderna)',
+    gender: 'feminino',
+    description: 'Microsoft Edge Neural — Tom suave e equilibrado em português do Brasil',
+    tag: 'Edge TTS',
+    engine: 'edge-tts',
+  },
+  {
+    id: 'Aoede',
+    name: 'Aoede (Feminina Estúdio Gemini)',
+    gender: 'feminino',
+    description: 'Google Gemini 3.8 — Voz neural opcional (requer GEMINI_API_KEY)',
+    tag: 'Google Gemini',
+    engine: 'gemini',
+  },
+  {
+    id: 'Puck',
+    name: 'Puck (Masculina Jovem Gemini)',
+    gender: 'masculino',
+    description: 'Google Gemini 3.8 — Tom jovem (requer GEMINI_API_KEY)',
+    tag: 'Google Gemini',
+    engine: 'gemini',
+  },
 ] as const;
 
 export function cleanTextForSpeech(rawText: string): string {
@@ -61,7 +106,7 @@ export function stopCurrentSpeech() {
  */
 export async function playNeuralSpeech(
   text: string,
-  voice: string = 'Kore',
+  voice: string = 'pt-BR-FranciscaNeural',
   onStart?: () => void,
   onEnd?: () => void,
   onError?: (err: any) => void
@@ -74,20 +119,35 @@ export async function playNeuralSpeech(
   currentOnEndCallback = onEnd || null;
 
   try {
-    // 1. Tenta usar o serviço neural de estúdio do servidor
+    // 1. Tenta usar o serviço neural (Edge TTS ou Gemini) do servidor
     const res = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg, audio/wav, application/json',
+      },
       body: JSON.stringify({
         text: cleaned,
-        voice: voice || 'Kore',
+        voice: voice || 'pt-BR-FranciscaNeural',
       }),
     });
 
     if (res.ok) {
-      const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
+      const contentType = res.headers.get('content-type') || '';
+      let audioUrl = '';
+
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.audio) {
+          audioUrl = `data:${data.mimeType || 'audio/mpeg'};base64,${data.audio}`;
+        }
+      } else {
+        const blob = await res.blob();
+        audioUrl = URL.createObjectURL(blob);
+      }
+
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
         currentAudio = audio;
 
         audio.onplay = () => {
@@ -121,15 +181,47 @@ export async function playNeuralSpeech(
   }
 }
 
+// Cache de vozes locais do navegador
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  cachedVoices = window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedVoices = window.speechSynthesis.getVoices();
+  };
+}
+
 export function getBestPortugueseVoice(): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null;
-  const voices = window.speechSynthesis.getVoices();
-  const ptVoice = voices.find(
+  const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null;
+
+  // 1. Vozes neurais / online brasileiras de alta qualidade (Edge, Chrome, Windows)
+  const highQualityPtBr = voices.find(
     (v) =>
-      (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google')) &&
-      v.lang.startsWith('pt')
-  ) || voices.find((v) => v.lang.startsWith('pt'));
-  return ptVoice || null;
+      (v.lang === 'pt-BR' || v.lang === 'pt_BR') &&
+      (v.name.includes('Natural') ||
+        v.name.includes('Neural') ||
+        v.name.includes('Online') ||
+        v.name.includes('Google') ||
+        v.name.includes('Francisca') ||
+        v.name.includes('Antonio'))
+  );
+  if (highQualityPtBr) return highQualityPtBr;
+
+  // 2. Qualquer voz especificamente pt-BR (Chrome, Android, iOS Luciana, macOS)
+  const anyPtBr = voices.find(
+    (v) =>
+      v.lang === 'pt-BR' ||
+      v.lang === 'pt_BR' ||
+      v.name.toLowerCase().includes('brazil') ||
+      v.name.toLowerCase().includes('brasil')
+  );
+  if (anyPtBr) return anyPtBr;
+
+  // 3. Qualquer voz que comece com pt (pt-PT etc.)
+  const anyPt = voices.find((v) => v.lang.toLowerCase().startsWith('pt'));
+  return anyPt || null;
 }
 
 function fallbackToBrowserSpeech(
@@ -149,13 +241,7 @@ function fallbackToBrowserSpeech(
   utterance.rate = 1.05;
   utterance.pitch = 1.0;
 
-  const voices = window.speechSynthesis.getVoices();
-  const ptVoice = voices.find(
-    (v) =>
-      (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google')) &&
-      v.lang.startsWith('pt')
-  ) || voices.find((v) => v.lang.startsWith('pt'));
-
+  const ptVoice = getBestPortugueseVoice();
   if (ptVoice) utterance.voice = ptVoice;
 
   utterance.onstart = () => {

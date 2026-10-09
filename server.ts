@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Shared API handlers (Single Source of Truth for local Express and Vercel Serverless)
+import statusHandler from './api/status';
+import chatHandler from './api/chat';
+import ttsHandler from './api/tts';
+
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
@@ -15,201 +20,84 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 // Enable JSON body parsing with high limit for base64 images
 app.use(express.json({ limit: '30mb' }));
 
-// Health / Status endpoint (never exposes key value, only whether it is configured)
-app.get('/api/status', (req, res) => {
-  const rawKey = process.env.NVIDIA_API_KEY || '';
-  const isPlaceholder = rawKey === 'sua_key_aqui' || rawKey === 'nvapi-your-key-here' || rawKey.trim() === '';
-  res.json({
-    status: 'ok',
-    hasApiKey: !isPlaceholder,
-  });
-});
+/**
+ * Adapter that converts Express (req, res) to Web Standard (Request -> Response).
+ * This eliminates code duplication completely between server.ts (Express) and api/*.ts (Vercel).
+ */
+function adaptWebHandler(handler: (req: Request) => Promise<Response>) {
+  return async (req: express.Request, res: express.Response) => {
+    try {
+      const protocol = req.protocol || 'http';
+      const host = req.get('host') || `localhost:${PORT}`;
+      const url = `${protocol}://${host}${req.originalUrl || req.url}`;
 
-// Proxy route for NVIDIA NIM Chat Completions
-app.post('/api/chat', async (req, res) => {
-  const apiKey = process.env.NVIDIA_API_KEY;
-
-  if (!apiKey || apiKey === 'sua_key_aqui' || apiKey === 'nvapi-your-key-here' || apiKey.trim() === '') {
-    return res.status(401).json({
-      error: 'NVIDIA_API_KEY não configurada no servidor. Por favor, configure a chave no arquivo .env.local ou nas variáveis de ambiente.',
-    });
-  }
-
-  const { messages, model, reasoning_effort } = req.body;
-
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'Nenhuma mensagem informada.' });
-  }
-
-  const selectedModel = model || 'z-ai/glm-5.3';
-  const selectedEffort = reasoning_effort || 'low';
-
-  // Check if any message has images
-  const hasImages = messages.some((m: any) => m.images && Array.isArray(m.images) && m.images.length > 0);
-  if (hasImages && selectedModel !== 'z-ai/glm-5.3-flash') {
-    return res.status(400).json({
-      error: 'Este modelo não suporta imagens. Use o modelo GLM-5.3-Flash.',
-    });
-  }
-
-  // Format messages for OpenAI standard compatibility
-  const formattedMessages = messages.map((m: any) => {
-    if (m.role === 'user' && m.images && Array.isArray(m.images) && m.images.length > 0) {
-      return {
-        role: 'user',
-        content: [
-          { type: 'text', text: m.content || '' },
-          ...m.images.map((img: string) => ({
-            type: 'image_url',
-            image_url: { url: img },
-          })),
-        ],
-      };
-    }
-    return {
-      role: m.role,
-      content: m.content || '',
-    };
-  });
-
-  // CRITICAL REQUIREMENT:
-  // reasoning_effort must be at root level, NOT nested in chat_template_kwargs
-  const payload = {
-    model: selectedModel,
-    messages: formattedMessages,
-    stream: true,
-    reasoning_effort: selectedEffort,
-  };
-
-  try {
-    const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey.trim()}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!nvidiaRes.ok) {
-      const errText = await nvidiaRes.text();
-      let errMsg = `Erro da API NVIDIA (${nvidiaRes.status})`;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed?.error?.message) {
-          errMsg = parsed.error.message;
-        } else if (parsed?.message) {
-          errMsg = parsed.message;
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (value === undefined) continue;
+        if (Array.isArray(value)) {
+          for (const v of value) headers.append(key, v);
+        } else {
+          headers.set(key, value);
         }
-      } catch {
-        if (errText) errMsg = errText;
       }
 
-      if (nvidiaRes.status === 401) {
-        errMsg = 'Chave NVIDIA_API_KEY inválida ou não autorizada. Verifique sua chave no .env.local.';
-      } else if (nvidiaRes.status === 429) {
-        errMsg = 'Muitas requisições (Rate Limit). Espere um minuto antes de tentar novamente.';
+      const method = req.method.toUpperCase();
+      const init: RequestInit = {
+        method,
+        headers,
+      };
+
+      if (method !== 'GET' && method !== 'HEAD') {
+        if (req.body && typeof req.body === 'object') {
+          init.body = JSON.stringify(req.body);
+        } else if (typeof req.body === 'string') {
+          init.body = req.body;
+        }
       }
 
-      return res.status(nvidiaRes.status).json({ error: errMsg });
-    }
+      const webReq = new Request(url, init);
+      const webRes = await handler(webReq);
 
-    // Stream SSE directly to the client
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+      res.status(webRes.status);
+      webRes.headers.forEach((value, key) => {
+        if (key.toLowerCase() !== 'transfer-encoding') {
+          res.setHeader(key, value);
+        }
+      });
 
-    if (!nvidiaRes.body) {
+      if (!webRes.body) {
+        res.end();
+        return;
+      }
+
+      const reader = webRes.body.getReader();
+      req.on('close', () => {
+        reader.cancel().catch(() => {});
+      });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(value);
+      }
       res.end();
-      return;
+    } catch (err: any) {
+      console.error('API Error in handler adapter:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: err?.message || 'Erro interno no servidor.' });
+      } else {
+        res.end();
+      }
     }
+  };
+}
 
-    const reader = nvidiaRes.body.getReader();
+// Routes wired directly to single-source handlers
+app.all('/api/status', adaptWebHandler(statusHandler));
+app.all('/api/chat', adaptWebHandler(chatHandler));
+app.all('/api/tts', adaptWebHandler(ttsHandler));
 
-    req.on('close', () => {
-      reader.cancel().catch(() => {});
-    });
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(value);
-    }
-    res.end();
-  } catch (error: any) {
-    console.error('API Error in /api/chat:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: error?.message || 'Falha na comunicação com o servidor NVIDIA.' });
-    } else {
-      res.end();
-    }
-  }
-});
-
-// High-fidelity Neural Text-to-Speech route
-app.post('/api/tts', async (req, res) => {
-  const { text, voice } = req.body;
-  if (!text || typeof text !== 'string' || !text.trim()) {
-    return res.status(400).json({ error: 'Texto não informado para leitura.' });
-  }
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.status(503).json({ error: 'Chave de TTS neural não configurada.' });
-  }
-
-  try {
-    const cleanText = text.slice(0, 2000);
-    const selectedVoice = voice || 'Kore';
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent?key=${geminiKey}`;
-
-    const apiRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: cleanText }],
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: selectedVoice },
-            },
-          },
-        },
-      }),
-    });
-
-    if (!apiRes.ok) {
-      const errText = await apiRes.text();
-      return res.status(apiRes.status).json({ error: `Erro na API TTS: ${errText}` });
-    }
-
-    const data = await apiRes.json();
-    const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-    if (!base64Audio) {
-      return res.status(500).json({ error: 'Áudio não retornado pelo modelo.' });
-    }
-
-    res.json({
-      audio: base64Audio,
-      mimeType: 'audio/wav',
-      voice: selectedVoice,
-    });
-  } catch (error: any) {
-    console.error('TTS generation error:', error);
-    res.status(500).json({ error: error?.message || 'Erro ao gerar áudio com voz neural.' });
-  }
-});
-
-// Setup Vite middleware or serve static files
+// Setup Vite middleware in dev or serve static files in production
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 

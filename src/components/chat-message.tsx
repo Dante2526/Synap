@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronDown, ChevronRight, Copy, Check, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, FileText, ListTodo } from 'lucide-react';
 import { Message } from '../lib/types';
 import { formatFileSize } from '../lib/utils';
 import { CodeBlock } from './code-block';
@@ -46,6 +46,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming =
         /* ================= USER MESSAGE (Claude warm card on right) ================= */
         <div className="flex justify-end">
           <div className="bg-[#302e2a] text-[#f3efe6] border border-[#3e3b34] rounded-2xl px-4 py-2.5 max-w-[90%] sm:max-w-[80%] shadow-xs">
+            {message.isPlanMode && (
+              <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-[#3e3b34] text-[11px] font-mono font-medium text-[#f09a7d]">
+                <ListTodo className="w-3.5 h-3.5 text-[#d97757]" />
+                <span>Modo Plano Ativado</span>
+              </div>
+            )}
+
             {/* Attached images for user */}
             {message.images && message.images.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
@@ -92,9 +99,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming =
         /* ================= CLAUDE / ASSISTANT RESPONSE (Editorial Document Style) ================= */
         <div className="flex flex-col items-start w-full">
           {/* Claude Icon / Header */}
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <ClaudeLogo className="w-5 h-5 text-[#d97757]" />
             <span className="font-serif text-sm font-medium text-[#c4bfb6]">Synap</span>
+            {message.isPlanMode && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium bg-[#d97757]/15 text-[#f09a7d] border border-[#d97757]/30 shadow-xs">
+                <ListTodo className="w-3.5 h-3.5 text-[#d97757]" />
+                <span>Plano Estratégico</span>
+              </span>
+            )}
           </div>
 
           {/* Thinking Process Accordion (Dynamic label reflecting selected mode: low / high / max) */}
@@ -135,7 +148,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming =
                   </span>
 
                   {message.isPlanMode && (
-                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/30 font-medium">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/30 font-medium">
+                      <ListTodo className="w-2.5 h-2.5 text-[#d97757]" />
                       Modo Plano
                     </span>
                   )}

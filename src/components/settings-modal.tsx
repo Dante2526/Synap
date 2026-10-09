@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Moon, Sun, Volume2, Database, Trash2, Download, KeyRound, AlertTriangle, Check } from 'lucide-react';
+import { X, Moon, Sun, Volume2, Database, Trash2, Download, KeyRound, AlertTriangle, Check, Sparkles } from 'lucide-react';
 import { AppSettings, Conversation } from '../lib/types';
 import { exportConversationsToJSON } from '../lib/storage';
+import { NEURAL_VOICES } from '../lib/speech';
 import { ClaudeLogo } from './claude-logo';
 
 interface SettingsModalProps {
@@ -12,6 +13,7 @@ interface SettingsModalProps {
   conversations: Conversation[];
   onClearHistory: () => Promise<void>;
   hasApiKey: boolean | null;
+  hasGeminiKey?: boolean | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -22,6 +24,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   conversations,
   onClearHistory,
   hasApiKey,
+  hasGeminiKey,
 }) => {
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [isClearing, setIsClearing] = useState(false);
@@ -63,17 +66,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         <div className="p-5 space-y-4 overflow-y-auto">
-          {/* API Key Status Notice */}
-          <div className="p-3.5 rounded-xl border border-[#3b3831] bg-[#1d1b18] text-xs">
-            <div className="flex items-center gap-2 mb-1 font-medium text-[#f3efe6]">
-              <KeyRound className="w-4 h-4 text-[#d97757]" />
-              <span>Conexão com NVIDIA NIM</span>
+          {/* API Keys Status Notices */}
+          <div className="space-y-2">
+            {/* NVIDIA NIM Key Status */}
+            <div className="p-3 rounded-xl border border-[#3b3831] bg-[#1d1b18] text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2 font-medium text-[#f3efe6]">
+                  <KeyRound className="w-3.5 h-3.5 text-[#d97757]" />
+                  <span>NVIDIA NIM (Chat & Modelos GLM)</span>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium ${
+                    hasApiKey
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                  }`}
+                >
+                  {hasApiKey ? 'Conectado' : 'Não configurada'}
+                </span>
+              </div>
+              <p className="text-[#a39d93] leading-relaxed text-[11px]">
+                {hasApiKey
+                  ? 'NVIDIA_API_KEY ativa para os modelos GLM-5.3 e GLM-5.3-Flash.'
+                  : 'Adicione NVIDIA_API_KEY no arquivo .env.local para conversar com os modelos.'}
+              </p>
             </div>
-            <p className="text-[#a39d93] leading-relaxed text-[11px]">
-              {hasApiKey
-                ? 'Chave de API NVIDIA NIM ativa no servidor (.env.local).'
-                : 'Defina a variável NVIDIA_API_KEY no servidor para habilitar a IA.'}
-            </p>
+
+            {/* Edge TTS Status */}
+            <div className="p-3 rounded-xl border border-[#3b3831] bg-[#1d1b18] text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2 font-medium text-[#f3efe6]">
+                  <Sparkles className="w-3.5 h-3.5 text-[#d97757]" />
+                  <span>Microsoft Edge TTS (Vozes Neurais pt-BR)</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  Ativo (Sem Chave / Grátis)
+                </span>
+              </div>
+              <p className="text-[#a39d93] leading-relaxed text-[11px]">
+                As vozes neurais da Microsoft em português do Brasil (Francisca, Antonio e Thalita) estão ativadas no servidor sem precisar de nenhuma chave de API.
+                {hasGeminiKey && ' GEMINI_API_KEY também detectada caso queira alternar para as vozes Aoede ou Puck.'}
+              </p>
+            </div>
           </div>
 
           {/* Grouped Settings Card - Claude Style */}
@@ -105,7 +139,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div>
                   <div className="text-xs sm:text-sm font-medium text-[#f3efe6]">Voz neural humana</div>
-                  <div className="text-[10px] text-[#8c867a]">Leitura em voz alta de alta fidelidade</div>
+                  <div className="text-[10px] text-[#8c867a]">Leitura em voz alta com sintetizador neural</div>
                 </div>
               </div>
               <input
@@ -118,41 +152,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* Voice Persona Selector */}
             {settings.voiceEnabled && (
-              <div className="pl-10 pt-1 pb-1 space-y-1.5 border-t border-[#2d2a25]/60">
-                <label className="text-[11px] text-[#a39d93] block font-medium">
-                  Voz da Leitura:
-                </label>
-                <div className="space-y-1">
-                  {[
-                    { id: 'pt-BR-FranciscaNeural', name: 'Francisca (Natural & Expressiva)', tag: 'Padrão' },
-                    { id: 'pt-BR-AntonioNeural', name: 'Antônio (Masculina Clara)', tag: 'Natural' },
-                    { id: 'pt-BR-ThalitaNeural', name: 'Thalita (Suave e Acolhedora)', tag: 'Calorosa' },
-                  ].map((voice) => {
-                    const isSelected = (settings.speechVoice || 'pt-BR-FranciscaNeural') === voice.id;
+              <div className="pl-10 pt-1 pb-1 space-y-2 border-t border-[#2d2a25]/60">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-[#a39d93] font-medium">
+                    Voz da Leitura (Português do Brasil):
+                  </label>
+                  <span className="text-[10px] text-[#736e65]">Dicção natural</span>
+                </div>
+                <div className="space-y-1.5">
+                  {NEURAL_VOICES.map((voice) => {
+                    const currentSelected = settings.speechVoice || 'pt-BR-FranciscaNeural';
+                    const isSelected = currentSelected === voice.id;
                     return (
                       <button
                         key={voice.id}
                         type="button"
                         onClick={() => onUpdateSettings({ speechVoice: voice.id })}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
                           isSelected
                             ? 'bg-[#2f2b25] border border-[#d97757]/40 text-[#f3efe6] font-medium'
                             : 'bg-[#181614] border border-[#2b2924] text-[#a39d93] hover:bg-[#25221d]'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <span>{voice.name}</span>
-                          <span
-                            className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
-                              isSelected
-                                ? 'bg-[#d97757]/20 text-[#f09a7d]'
-                                : 'bg-[#22201c] text-[#736e65]'
-                            }`}
-                          >
-                            {voice.tag}
-                          </span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2">
+                            <span>{voice.name}</span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
+                                isSelected
+                                  ? 'bg-[#d97757]/20 text-[#f09a7d]'
+                                  : 'bg-[#22201c] text-[#736e65]'
+                              }`}
+                            >
+                              {voice.tag}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[#736e65] leading-tight">{voice.description}</span>
                         </div>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-[#d97757]" />}
+                        {isSelected && <Check className="w-3.5 h-3.5 text-[#d97757] shrink-0 ml-2" />}
                       </button>
                     );
                   })}

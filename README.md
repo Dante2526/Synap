@@ -14,13 +14,23 @@ npm install
 ### 2. Configurar variáveis de ambiente
 Copie o modelo de ambiente:
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env.local
 ```
-Edite `.env.local` e adicione a sua chave da NVIDIA NIM:
+*(ou se preferir, pode nomear como `.env`)*
+
+Edite o arquivo gerado e configure suas chaves de API:
 ```env
+# 1. Chave da NVIDIA NIM (Obrigatória para o Chat e Modelos GLM-5.3)
 NVIDIA_API_KEY=nvapi-sua-chave-aqui
+
+# 2. Chave Google Gemini (Opcional - para Voz Neural de Estúdio em Português pt-BR)
+GEMINI_API_KEY=AIzaSy-sua-chave-aqui
 ```
-*(Você pode obter uma chave gratuita com créditos em [https://build.nvidia.com](https://build.nvidia.com))*
+
+#### Onde obter as chaves gratuitas:
+- **`NVIDIA_API_KEY`**: Obtenha gratuitamente com créditos em [build.nvidia.com](https://build.nvidia.com).
+- **`GEMINI_API_KEY`**: Obtenha em segundos sem custo no Google AI Studio em [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+  > **Nota sobre o TTS Neural**: A `GEMINI_API_KEY` alimenta o modelo neural `gemini-3.8-flash-lite-tts`, que lê o texto em português brasileiro nativo sem sotaque estrangeiro (vozes *Aoede*, *Kore*, *Puck*, *Charon*). Se a chave não for configurada, o aplicativo automaticamente utilizará a síntese local do navegador (Web Speech API).
 
 ### 3. Iniciar o servidor
 ```bash
@@ -53,8 +63,9 @@ O projeto já está 100% pronto para a Vercel com Edge Functions para streaming 
 4. Clique em **"Add New..."** > **"Project"** e importe o repositório do chat.
 5. Na tela de configuração antes de clicar em Deploy:
    - Expanda **"Environment Variables"**.
-   - Nome: `NVIDIA_API_KEY`
-   - Valor: sua chave da NVIDIA (`nvapi-...`).
+   - Adicione:
+     - `NVIDIA_API_KEY`: sua chave da NVIDIA (`nvapi-...`).
+     - `GEMINI_API_KEY`: sua chave do Google AI Studio para voz neural pt-BR (`AIzaSy...`).
 6. Clique no botão **Deploy**.
 7. Pronto! A Vercel vai gerar uma URL pública com HTTPS (ex: `https://meu-chat.vercel.app`) para você usar tanto no PC quanto no celular em qualquer lugar.
 
@@ -63,7 +74,7 @@ O projeto já está 100% pronto para a Vercel com Edge Functions para streaming 
 npm i -g vercel
 vercel
 ```
-Durante o processo, informe a variável `NVIDIA_API_KEY`.
+Durante o processo, informe as variáveis `NVIDIA_API_KEY` e `GEMINI_API_KEY`.
 
 ---
 
@@ -94,9 +105,11 @@ Durante o processo, informe a variável `NVIDIA_API_KEY`.
    - Conversão para base64 no formato padrão OpenAI `image_url`.
    - Suporte a múltiplas imagens por mensagem.
 
-6. **Voz Nativa (Web Speech API)**:
-   - **Entrada (Speech-to-Text)**: Botão de microfone com reconhecimento em português (`pt-BR`).
-   - **Saída (Text-to-Speech)**: Botão de alto-falante em cada mensagem do assistente para ouvir a resposta em voz alta.
+6. **Voz Neural de Alta Fidelidade (TTS Gemini 3.8 Flash Lite) & Transcrição (STT)**:
+   - **Voz Neural (Text-to-Speech)**: Modelo `gemini-3.8-flash-lite-tts` com metadados de estilo para pronúncia e entonação nativas do Brasil (sem sotaque americano ou voz robotizada).
+   - **Seleção de Vozes Reais**: Suporte às vozes de estúdio `Aoede` (feminina expressiva recomendada para pt-BR), `Kore` (suave), `Puck` (masculina jovem amigável), `Charon` (masculina profissional) e `Fenrir`.
+   - **Fallback Inteligente**: Se a `GEMINI_API_KEY` não estiver definida, a aplicação utiliza automaticamente o sintetizador local do navegador (`window.speechSynthesis`), exibindo aviso transparente na interface.
+   - **Entrada por Voz (Speech-to-Text)**: Botão de microfone com reconhecimento contínuo em português (`pt-BR`).
 
 7. **Renderização de Markdown & Código**:
    - Suporte completo a tabelas, listas, links e blocos de código com botão de cópia com feedback instantâneo.

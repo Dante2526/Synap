@@ -35,6 +35,7 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [hasGeminiKey, setHasGeminiKey] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // Settings
@@ -57,20 +58,28 @@ export default function App() {
     return 'low';
   });
 
-  const [isPlanMode, setIsPlanMode] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('nim_chat_plan_mode_v1') === 'true';
-    }
-    return false;
-  });
+  const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
 
   const handleTogglePlanMode = () => {
     setIsPlanMode((prev) => {
       const next = !prev;
-      localStorage.setItem('nim_chat_plan_mode_v1', String(next));
       if (next && reasoningEffort === 'low') {
         setReasoningEffort('high');
         localStorage.setItem(REASONING_STORAGE_KEY, 'high');
+      }
+      if (activeId) {
+        setConversations((all) =>
+          all.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  isPlanMode: next,
+                  reasoningEffort: next && c.reasoningEffort === 'low' ? 'high' : c.reasoningEffort,
+                  updatedAt: Date.now(),
+                }
+              : c
+          )
+        );
       }
       return next;
     });
@@ -97,6 +106,13 @@ export default function App() {
       setConversations(loaded);
       if (loaded.length > 0) {
         setActiveId(loaded[0].id);
+        setIsPlanMode(Boolean(loaded[0].isPlanMode));
+        if (loaded[0].model === 'z-ai/glm-5.3' || loaded[0].model === 'z-ai/glm-5.3-flash') {
+          setSelectedModel(loaded[0].model as ModelId);
+        }
+        if (loaded[0].reasoningEffort) {
+          setReasoningEffort(loaded[0].reasoningEffort);
+        }
       }
     });
 
@@ -105,9 +121,11 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         setHasApiKey(Boolean(data.hasApiKey));
+        setHasGeminiKey(Boolean(data.hasGeminiKey));
       })
       .catch(() => {
         setHasApiKey(false);
+        setHasGeminiKey(false);
       });
 
     // Connectivity listeners
@@ -179,6 +197,7 @@ export default function App() {
     }
     setActiveId(null);
     setErrorMessage(null);
+    setIsPlanMode(false);
   };
 
   // Select a conversation
@@ -190,7 +209,7 @@ export default function App() {
     setActiveId(id);
     setErrorMessage(null);
 
-    // Sync model & reasoning effort from conversation if present
+    // Sync model & reasoning effort & plan mode from conversation if present
     const conv = conversations.find((c) => c.id === id);
     if (conv) {
       if (conv.model === 'z-ai/glm-5.3' || conv.model === 'z-ai/glm-5.3-flash') {
@@ -199,6 +218,7 @@ export default function App() {
       if (conv.reasoningEffort) {
         setReasoningEffort(conv.reasoningEffort);
       }
+      setIsPlanMode(Boolean(conv.isPlanMode));
     }
   };
 
@@ -207,7 +227,9 @@ export default function App() {
     const updated = conversations.filter((c) => c.id !== id);
     setConversations(updated);
     if (activeId === id) {
-      setActiveId(updated.length > 0 ? updated[0].id : null);
+      const nextActive = updated.length > 0 ? updated[0] : null;
+      setActiveId(nextActive ? nextActive.id : null);
+      setIsPlanMode(Boolean(nextActive?.isPlanMode));
     }
   };
 
@@ -238,10 +260,13 @@ export default function App() {
   const handleSendMessage = async (
     text: string,
     images: string[] = [],
-    documents: AttachedDocument[] = []
+    documents: AttachedDocument[] = [],
+    overridePlanMode?: boolean
   ) => {
     if (!text && images.length === 0 && documents.length === 0) return;
     setErrorMessage(null);
+
+    const activePlan = overridePlanMode !== undefined ? overridePlanMode : isPlanMode;
 
     // Auto-switch to GLM-5.3-Flash if images are attached
     let effectiveModel = selectedModel;
@@ -257,6 +282,7 @@ export default function App() {
       content: text,
       images: images.length > 0 ? images : undefined,
       documents: documents.length > 0 ? documents : undefined,
+      isPlanMode: activePlan,
       createdAt: Date.now(),
     };
 
@@ -277,6 +303,7 @@ export default function App() {
         updatedAt: Date.now(),
         model: effectiveModel,
         reasoningEffort: reasoningEffort,
+        isPlanMode: activePlan,
       };
 
       currentConvId = newId;
@@ -289,7 +316,7 @@ export default function App() {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === currentConvId
-            ? { ...c, messages: updatedMessages, updatedAt: Date.now() }
+            ? { ...c, messages: updatedMessages, isPlanMode: activePlan, updatedAt: Date.now() }
             : c
         )
       );
@@ -303,7 +330,7 @@ export default function App() {
       content: '',
       reasoning: '',
       reasoningEffort: reasoningEffort,
-      isPlanMode: isPlanMode,
+      isPlanMode: activePlan,
       createdAt: Date.now(),
     };
 
@@ -342,7 +369,7 @@ export default function App() {
     });
 
     // If Plan Mode is active, inject the Planning directive
-    if (isPlanMode) {
+    if (activePlan) {
       const planSystemPrompt = {
         role: 'system',
         content:
@@ -507,24 +534,28 @@ export default function App() {
       title: 'Explicar arquitetura',
       desc: 'Como funciona o mecanismo de Attention nos modelos Transformer?',
       model: 'z-ai/glm-5.3' as ModelId,
+      planMode: false,
     },
     {
       category: 'Código & Algoritmo',
       title: 'Algoritmo TypeScript',
       desc: 'Escreva uma função debounce com cancelamento e tipagem estrita.',
       model: 'z-ai/glm-5.3' as ModelId,
+      planMode: false,
     },
     {
       category: 'Visão & Diagnóstico',
       title: 'Análise de Imagens',
       desc: 'Use o modelo Flash para anexar capturas de tela e obter diagnósticos.',
       model: 'z-ai/glm-5.3-flash' as ModelId,
+      planMode: false,
     },
     {
       category: 'Estratégia & Roteiro',
       title: 'Criar Plano Estruturado',
       desc: 'Ative a Função Plan para gerar um roteiro de ação com cronograma e fases.',
       model: 'z-ai/glm-5.3' as ModelId,
+      planMode: true,
     },
   ];
 
@@ -604,7 +635,14 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       if (item.model) handleSelectModel(item.model);
-                      handleSendMessage(item.desc, []);
+                      if (item.planMode) {
+                        setIsPlanMode(true);
+                        if (reasoningEffort === 'low') {
+                          setReasoningEffort('high');
+                          localStorage.setItem(REASONING_STORAGE_KEY, 'high');
+                        }
+                      }
+                      handleSendMessage(item.desc, [], [], item.planMode);
                     }}
                     className="p-3.5 sm:p-4 rounded-xl border border-[#38352e] bg-[#24221e] hover:bg-[#2c2925] hover:border-[#4d483e] text-[#d8d3c9] transition-all group cursor-pointer text-left shadow-xs flex flex-col justify-between active:scale-[0.99]"
                   >
@@ -667,6 +705,7 @@ export default function App() {
         conversations={conversations}
         onClearHistory={handleClearHistory}
         hasApiKey={hasApiKey}
+        hasGeminiKey={hasGeminiKey}
       />
     </div>
   );
