@@ -147,6 +147,68 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// High-fidelity Neural Text-to-Speech route
+app.post('/api/tts', async (req, res) => {
+  const { text, voice } = req.body;
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'Texto não informado para leitura.' });
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.status(503).json({ error: 'Chave de TTS neural não configurada.' });
+  }
+
+  try {
+    const cleanText = text.slice(0, 2000);
+    const selectedVoice = voice || 'Kore';
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent?key=${geminiKey}`;
+
+    const apiRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: cleanText }],
+          },
+        ],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: selectedVoice },
+            },
+          },
+        },
+      }),
+    });
+
+    if (!apiRes.ok) {
+      const errText = await apiRes.text();
+      return res.status(apiRes.status).json({ error: `Erro na API TTS: ${errText}` });
+    }
+
+    const data = await apiRes.json();
+    const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (!base64Audio) {
+      return res.status(500).json({ error: 'Áudio não retornado pelo modelo.' });
+    }
+
+    res.json({
+      audio: base64Audio,
+      mimeType: 'audio/wav',
+      voice: selectedVoice,
+    });
+  } catch (error: any) {
+    console.error('TTS generation error:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao gerar áudio com voz neural.' });
+  }
+});
+
 // Setup Vite middleware or serve static files
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';

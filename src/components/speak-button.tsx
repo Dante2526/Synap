@@ -1,90 +1,156 @@
-import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { cleanTextForSpeech, getBestPortugueseVoice } from '../lib/speech';
 
 interface SpeakButtonProps {
   text: string;
 }
 
 export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-      setIsSupported(false);
-      return;
-    }
-
-    const checkSpeaking = () => {
-      if (window.speechSynthesis) {
-        setIsSpeaking(window.speechSynthesis.speaking);
-      }
-    };
-
-    const interval = setInterval(checkSpeaking, 250);
     return () => {
-      clearInterval(interval);
+      // Cleanup audio on unmount
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
 
-  const handleToggleSpeak = () => {
-    if (!window.speechSynthesis || !text.trim()) return;
-
-    if (isSpeaking) {
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+    }
+    setIsPlaying(false);
+    setIsLoading(false);
+  };
+
+  const handleToggleSpeak = async () => {
+    if (isPlaying || isLoading) {
+      stopAudio();
       return;
     }
 
-    // Cancel any previous utterance
-    window.speechSynthesis.cancel();
+    if (!text.trim()) return;
 
-    // Strip code blocks and raw markdown syntax for smoother speech reading
-    const cleanText = text
-      .replace(/```[\s\S]*?```/g, 'Bloco de código omitido.')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/[*_#~[\]()]/g, ' ')
-      .trim();
-
-    if (!cleanText) return;
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'pt-BR';
-
-    // Find best pt-BR voice
-    const voices = window.speechSynthesis.getVoices();
-    const ptVoice = voices.find((v) => v.lang.startsWith('pt') || v.lang.includes('BR'));
-    if (ptVoice) {
-      utterance.voice = ptVoice;
+    // Check if we already have the audio blob cached for this message
+    if (audioUrlRef.current) {
+      try {
+        const audio = new Audio(audioUrlRef.current);
+        audioRef.current = audio;
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = () => setIsPlaying(false);
+        setIsPlaying(true);
+        await audio.play();
+        return;
+      } catch (err) {
+        console.warn('Cached audio playback failed, generating new:', err);
+      }
     }
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = (e) => {
-      console.warn('Speech error:', e);
-      setIsSpeaking(false);
-    };
+    setIsLoading(true);
 
-    window.speechSynthesis.speak(utterance);
+    try {
+      // 1. Try high-fidelity Neural TTS from backend (/api/tts)
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          voice: 'pt-BR-FranciscaNeural', // Best natural Portuguese neural voice
+        }),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = () => setIsPlaying(false);
+
+        setIsLoading(false);
+        setIsPlaying(true);
+        await audio.play();
+        return;
+      }
+    } catch (err) {
+      console.warn('Neural TTS endpoint unavailable, falling back to browser speech:', err);
+    }
+
+    // 2. Fallback to Web Speech API if endpoint is offline or fails
+    setIsLoading(false);
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const clean = cleanTextForSpeech(text);
+      if (!clean) return;
+
+      const utterance = new SpeechSynthesisUtterance(clean);
+      const best = getBestPortugueseVoice();
+      if (best) utterance.voice = best;
+      utterance.lang = 'pt-BR';
+      utterance.rate = 1.06;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setIsPlaying(true);
+      utterance.onend = () => setIsPlaying(false);
+      utterance.onerror = () => setIsPlaying(false);
+
+      window.speechSynthesis.speak(utterance);
+    }
   };
-
-  if (!isSupported) return null;
 
   return (
     <button
       onClick={handleToggleSpeak}
-      aria-label={isSpeaking ? 'Parar leitura em voz alta' : 'Ouvir resposta em voz alta'}
-      title={isSpeaking ? 'Parar leitura em voz alta' : 'Ouvir resposta (pt-BR)'}
-      className={`p-1.5 rounded-lg text-xs transition-colors flex items-center gap-1 ${
-        isSpeaking
-          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
-          : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+      disabled={isLoading && !isPlaying}
+      aria-label={isPlaying ? 'Parar leitura em voz alta' : 'Ouvir resposta com voz natural humana'}
+      title={
+        isPlaying
+          ? 'Parar leitura em voz alta'
+          : 'Ouvir com voz neural natural (Francisca - pt-BR)'
+      }
+      className={`px-2 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+        isPlaying
+          ? 'bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40'
+          : isLoading
+          ? 'bg-[#282622] text-[#d97757] border border-[#3d3a33]'
+          : 'text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#282622]'
       }`}
     >
-      {isSpeaking ? (
+      {isLoading ? (
         <>
-          <VolumeX className="w-3.5 h-3.5 text-purple-400" />
-          <span className="text-[11px] text-purple-300">Parar voz</span>
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#d97757]" />
+          <span className="text-[11px] font-medium text-[#f09a7d]">Carregando voz...</span>
+        </>
+      ) : isPlaying ? (
+        <>
+          <span className="flex items-center gap-0.5 h-3">
+            <span className="w-0.5 h-2 bg-[#d97757] animate-pulse" style={{ animationDelay: '0ms' }} />
+            <span className="w-0.5 h-3 bg-[#f09a7d] animate-pulse" style={{ animationDelay: '150ms' }} />
+            <span className="w-0.5 h-1.5 bg-[#d97757] animate-pulse" style={{ animationDelay: '300ms' }} />
+          </span>
+          <VolumeX className="w-3.5 h-3.5 text-[#d97757]" />
+          <span className="text-[11px] font-medium text-[#f09a7d]">Parar</span>
         </>
       ) : (
         <>

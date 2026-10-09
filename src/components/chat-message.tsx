@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, ChevronDown, ChevronRight, Brain, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, FileText } from 'lucide-react';
 import { Message } from '../lib/types';
-import { formatDate } from '../lib/utils';
+import { formatFileSize } from '../lib/utils';
 import { CodeBlock } from './code-block';
 import { SpeakButton } from './speak-button';
+import { ClaudeLogo } from './claude-logo';
 
 interface ChatMessageProps {
   message: Message;
@@ -14,7 +15,7 @@ interface ChatMessageProps {
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming = false }) => {
   const isUser = message.role === 'user';
-  const [showReasoning, setShowReasoning] = useState(true);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // Extract reasoning if formatted with <think>...</think> tags or message.reasoning
@@ -40,206 +41,230 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming =
   };
 
   return (
-    <div
-      className={`py-4 px-3 md:px-6 w-full flex ${
-        isUser ? 'justify-end' : 'justify-start'
-      } transition-colors`}
-    >
-      <div
-        className={`max-w-[94%] md:max-w-[85%] lg:max-w-[78%] flex gap-3 ${
-          isUser ? 'flex-row-reverse' : 'flex-row'
-        }`}
-      >
-        {/* Avatar */}
-        <div className="flex-shrink-0 mt-1">
-          {isUser ? (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-purple-900/20">
-              <User className="w-4 h-4" />
-            </div>
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-purple-600 p-[1px] shadow-md shadow-purple-900/20">
-              <div className="w-full h-full bg-zinc-950 rounded-full flex items-center justify-center">
-                <Bot className="w-4 h-4 text-purple-400" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Content Box */}
-        <div className={`flex flex-col min-w-0 ${isUser ? 'items-end' : 'items-start'}`}>
-          {/* Header info */}
-          <div className="flex items-center gap-2 mb-1 text-[11px] text-zinc-500">
-            <span className="font-medium text-zinc-400">
-              {isUser ? 'Você' : 'NVIDIA NIM (GLM)'}
-            </span>
-            <span>•</span>
-            <span>{formatDate(message.createdAt)}</span>
-          </div>
-
-          {/* User Bubble or Assistant Message */}
-          <div
-            className={`w-full overflow-hidden ${
-              isUser
-                ? 'bg-purple-950/40 text-purple-50 border border-purple-500/30 rounded-2xl rounded-tr-sm px-4 py-3 shadow-sm'
-                : 'text-zinc-200'
-            }`}
-          >
+    <div className="py-4 px-3 sm:px-6 w-full max-w-3xl mx-auto">
+      {isUser ? (
+        /* ================= USER MESSAGE (Claude warm card on right) ================= */
+        <div className="flex justify-end">
+          <div className="bg-[#302e2a] text-[#f3efe6] border border-[#3e3b34] rounded-2xl px-4 py-2.5 max-w-[90%] sm:max-w-[80%] shadow-xs">
             {/* Attached images for user */}
-            {isUser && message.images && message.images.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2.5">
+            {message.images && message.images.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
                 {message.images.map((img, i) => (
                   <a
                     key={i}
                     href={img}
                     target="_blank"
                     rel="noreferrer"
-                    className="block rounded-lg overflow-hidden border border-purple-500/30 hover:opacity-90 transition-opacity"
+                    className="block rounded-xl overflow-hidden border border-[#4a473f] hover:opacity-90 transition-opacity"
                   >
                     <img
                       src={img}
                       alt="Anexo"
-                      className="max-h-48 max-w-full rounded object-contain bg-black/40"
+                      className="max-h-48 max-w-full rounded-xl object-contain bg-black/40"
                     />
                   </a>
                 ))}
               </div>
             )}
 
-            {/* Thinking / Reasoning Section */}
-            {!isUser && thinkingContent && (
-              <div className="mb-3 rounded-xl border border-purple-500/20 bg-purple-950/20 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowReasoning(!showReasoning)}
-                  className="w-full px-3 py-2 flex items-center justify-between text-xs text-purple-300/90 hover:bg-purple-900/20 transition-colors"
-                >
-                  <span className="flex items-center gap-2 font-medium">
-                    <Brain className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                    Processo de Raciocínio ({thinkingContent.length} caracteres)
-                  </span>
-                  {showReasoning ? (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  )}
-                </button>
-
-                {showReasoning && (
-                  <div className="px-3.5 py-2.5 text-xs text-zinc-400 font-mono border-t border-purple-500/15 bg-black/30 leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto">
-                    {thinkingContent}
+            {/* Attached documents for user */}
+            {message.documents && message.documents.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {message.documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#23211d] border border-[#444038] text-xs text-[#f3efe6]"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-[#d97757] flex-shrink-0" />
+                    <span className="font-medium truncate max-w-[150px]">{doc.name}</span>
+                    <span className="text-[10px] text-[#8c867a] font-mono">{formatFileSize(doc.size)}</span>
                   </div>
-                )}
+                ))}
               </div>
             )}
 
-            {/* Markdown rendered text */}
-            <div className="prose prose-invert prose-purple max-w-none text-[15px] leading-relaxed break-words">
-              {displayContent ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      const isInline = !match && !String(children).includes('\n');
-                      if (isInline) {
-                        return (
-                          <code
-                            className="bg-zinc-800/80 text-purple-300 px-1.5 py-0.5 rounded text-[13px] font-mono border border-zinc-700/50"
-                            {...props}
-                          >
-                            {children}
-                          </code>
-                        );
-                      }
-                      return (
-                        <CodeBlock
-                          language={match ? match[1] : 'text'}
-                          value={String(children).replace(/\n$/, '')}
-                        />
-                      );
-                    },
-                    table({ children }) {
-                      return (
-                        <div className="my-4 overflow-x-auto rounded-lg border border-zinc-800">
-                          <table className="min-w-full divide-y divide-zinc-800 text-left text-sm">
-                            {children}
-                          </table>
-                        </div>
-                      );
-                    },
-                    th({ children }) {
-                      return (
-                        <th className="bg-zinc-900/80 px-4 py-2 font-semibold text-zinc-200">
-                          {children}
-                        </th>
-                      );
-                    },
-                    td({ children }) {
-                      return (
-                        <td className="px-4 py-2 text-zinc-300 border-t border-zinc-800/60">
-                          {children}
-                        </td>
-                      );
-                    },
-                    a({ href, children }) {
-                      return (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-purple-400 hover:text-purple-300 underline underline-offset-2"
-                        >
-                          {children}
-                        </a>
-                      );
-                    },
-                    ul({ children }) {
-                      return <ul className="my-2 list-disc pl-5 space-y-1">{children}</ul>;
-                    },
-                    ol({ children }) {
-                      return <ol className="my-2 list-decimal pl-5 space-y-1">{children}</ol>;
-                    },
-                  }}
-                >
-                  {displayContent}
-                </ReactMarkdown>
-              ) : isStreaming ? (
-                <div className="flex items-center gap-1.5 py-1 text-purple-400">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-              ) : null}
+            <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-sans">
+              {displayContent}
             </div>
-
-            {/* Assistant message action buttons */}
-            {!isUser && displayContent && !isStreaming && (
-              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-zinc-900 text-zinc-500">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  aria-label="Copiar mensagem"
-                  className="p-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors flex items-center gap-1"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-[11px] text-emerald-400">Copiado</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span className="text-[11px]">Copiar</span>
-                    </>
-                  )}
-                </button>
-
-                <SpeakButton text={displayContent} />
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      ) : (
+        /* ================= CLAUDE / ASSISTANT RESPONSE (Editorial Document Style) ================= */
+        <div className="flex flex-col items-start w-full">
+          {/* Claude Icon / Header */}
+          <div className="flex items-center gap-2 mb-2">
+            <ClaudeLogo className="w-5 h-5 text-[#d97757]" />
+            <span className="font-serif text-sm font-medium text-[#c4bfb6]">Synap</span>
+          </div>
+
+          {/* Thinking Process Accordion (Dynamic label reflecting selected mode: low / high / max) */}
+          {thinkingContent && (
+            <div className="w-full mb-3 rounded-xl border border-[#38352e] bg-[#24221e] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowReasoning(!showReasoning)}
+                className="w-full px-3.5 py-2 flex items-center justify-between text-xs text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#2c2925] transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-2 font-mono flex-wrap">
+                  {showReasoning ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-[#d97757] flex-shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-[#d97757] flex-shrink-0" />
+                  )}
+                  <span className="font-medium text-[#c4bfb6]">
+                    {message.reasoningEffort === 'low'
+                      ? 'Pensamento rápido'
+                      : message.reasoningEffort === 'high'
+                      ? 'Pensamento aprofundado'
+                      : message.reasoningEffort === 'max'
+                      ? 'Pensamento estendido'
+                      : 'Processo de raciocínio'}
+                  </span>
+
+                  {/* Mode Pill Badge */}
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono uppercase font-bold border ${
+                      message.reasoningEffort === 'max'
+                        ? 'bg-[#d97757]/20 text-[#f09a7d] border-[#d97757]/40'
+                        : message.reasoningEffort === 'high'
+                        ? 'bg-[#38332a] text-[#e0a96d] border-[#4d4536]'
+                        : 'bg-[#292723] text-[#a8a296] border-[#3d3a33]'
+                    }`}
+                  >
+                    {message.reasoningEffort ? `Modo ${message.reasoningEffort}` : 'Raciocínio'}
+                  </span>
+
+                  {message.isPlanMode && (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/30 font-medium">
+                      Modo Plano
+                    </span>
+                  )}
+
+                  <span className="text-[11px] text-[#736e65]">
+                    ({thinkingContent.length.toLocaleString()} caracteres)
+                  </span>
+                </span>
+                <span className="text-[10px] text-[#736e65] font-mono flex-shrink-0 ml-2">
+                  {showReasoning ? 'Ocultar' : 'Ver processo'}
+                </span>
+              </button>
+
+              {showReasoning && (
+                <div className="px-3.5 py-2.5 text-xs text-[#b8b2a5] font-mono border-t border-[#312f2a] bg-[#1d1b18] leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
+                  {thinkingContent}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Assistant Rendered Markdown */}
+          <div className="w-full prose prose-invert max-w-none text-[15px] sm:text-[16px] text-[#f3efe6] leading-relaxed break-words font-sans">
+            {displayContent ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ className, children, ...props }) {
+                    const match = /language-(\w+)/.exec(className || '');
+                    const isInline = !match && !String(children).includes('\n');
+                    if (isInline) {
+                      return (
+                        <code
+                          className="bg-[#2a2824] text-[#f09a7d] px-1.5 py-0.5 rounded-md text-[13px] font-mono border border-[#3b3831]"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    }
+                    return (
+                      <CodeBlock
+                        language={match ? match[1] : 'text'}
+                        value={String(children).replace(/\n$/, '')}
+                      />
+                    );
+                  },
+                  table({ children }) {
+                    return (
+                      <div className="my-3 overflow-x-auto rounded-xl border border-[#3b3831]">
+                        <table className="min-w-full divide-y divide-[#3b3831] text-left text-sm">
+                          {children}
+                        </table>
+                      </div>
+                    );
+                  },
+                  th({ children }) {
+                    return (
+                      <th className="bg-[#24221e] px-4 py-2 font-semibold text-[#f3efe6]">
+                        {children}
+                      </th>
+                    );
+                  },
+                  td({ children }) {
+                    return (
+                      <td className="px-4 py-2 text-[#d1cbc0] border-t border-[#312f2a]">
+                        {children}
+                      </td>
+                    );
+                  },
+                  a({ href, children }) {
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#d97757] hover:text-[#f09a7d] underline underline-offset-2"
+                      >
+                        {children}
+                      </a>
+                    );
+                  },
+                  ul({ children }) {
+                    return <ul className="my-2 list-disc pl-5 space-y-1">{children}</ul>;
+                  },
+                  ol({ children }) {
+                    return <ol className="my-2 list-decimal pl-5 space-y-1">{children}</ol>;
+                  },
+                }}
+              >
+                {displayContent}
+              </ReactMarkdown>
+            ) : isStreaming ? (
+              <div className="flex items-center gap-1.5 py-2 text-[#d97757]">
+                <span className="w-2 h-2 rounded-full bg-[#d97757] animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 rounded-full bg-[#d97757] animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 rounded-full bg-[#d97757] animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            ) : null}
+          </div>
+
+          {/* Action Bar (Claude style subtle bottom icons) */}
+          {displayContent && !isStreaming && (
+            <div className="flex items-center gap-1 mt-3 pt-2 text-[#8c867a]">
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label="Copiar mensagem"
+                title="Copiar texto"
+                className="p-1.5 rounded-lg hover:text-[#f3efe6] hover:bg-[#282622] transition-colors cursor-pointer flex items-center gap-1 text-xs"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-[11px] text-emerald-400">Copiado</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">Copiar</span>
+                  </>
+                )}
+              </button>
+
+              <SpeakButton text={displayContent} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

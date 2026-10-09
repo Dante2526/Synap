@@ -17,10 +17,10 @@ export const PWAInstallButton: React.FC = () => {
       <button
         onClick={install}
         aria-label="Instalar aplicativo PWA"
-        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-purple-600/20 text-purple-300 border border-purple-500/30 hover:bg-purple-600/30 transition text-xs font-medium cursor-pointer"
+        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[#272420] text-[#f3efe6] border border-[#3b3831] hover:bg-[#322e28] hover:border-[#d97757]/40 active:scale-[0.99] transition text-xs font-medium cursor-pointer shadow-xs"
       >
-        <Download className="w-4 h-4 text-purple-400" />
-        <span>Instalar App no Celular/PC</span>
+        <Download className="w-4 h-4 text-[#d97757]" />
+        <span>Instalar App no Celular</span>
       </button>
     );
   }
@@ -32,23 +32,23 @@ export const PWAInstallButton: React.FC = () => {
         <button
           onClick={() => setShowIOSGuide(true)}
           aria-label="Instalar app no iOS"
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-zinc-800/80 text-zinc-300 border border-zinc-700 hover:bg-zinc-800 transition text-xs font-medium cursor-pointer"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[#272420] text-[#f3efe6] border border-[#3b3831] hover:bg-[#322e28] hover:border-[#d97757]/40 active:scale-[0.99] transition text-xs font-medium cursor-pointer shadow-xs"
         >
-          <Smartphone className="w-4 h-4 text-purple-400" />
+          <Smartphone className="w-4 h-4 text-[#d97757]" />
           <span>Instalar no iPhone / iPad</span>
         </button>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 p-6 shadow-2xl">
-              <h3 className="text-base font-semibold text-white">Instalar no iPhone / iPad</h3>
-              <p className="mt-3 text-sm text-zinc-300 leading-relaxed">
-                1. Toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima) na barra do Safari.<br /><br />
-                2. Role para baixo e selecione <strong>Adicionar à Tela de Início</strong>.
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+            <div className="w-full max-w-sm rounded-2xl bg-[#23211d] border border-[#3b3831] p-6 shadow-2xl">
+              <h3 className="text-base font-semibold text-[#f3efe6] tracking-tight">Instalar no iPhone / iPad</h3>
+              <p className="mt-3 text-xs text-[#a39d93] leading-relaxed">
+                1. Toque no botão <strong className="text-[#f3efe6]">Compartilhar</strong> (quadrado com seta para cima) na barra do Safari.<br /><br />
+                2. Role para baixo e selecione <strong className="text-[#f3efe6]">Adicionar à Tela de Início</strong>.
               </p>
               <button
                 onClick={() => setShowIOSGuide(false)}
-                className="mt-5 w-full rounded-xl bg-purple-600 py-2.5 text-sm font-medium text-white hover:bg-purple-500 transition-colors"
+                className="mt-5 w-full rounded-xl bg-[#d97757] hover:bg-[#c96442] py-2.5 text-xs font-medium text-white transition-all cursor-pointer shadow-sm"
               >
                 Entendido
               </button>

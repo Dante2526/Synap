@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, Sparkles, AlertCircle, WifiOff, RefreshCw, X, MessageSquarePlus } from 'lucide-react';
+import { AlertCircle, WifiOff, X } from 'lucide-react';
 import {
   Conversation,
   Message,
   ModelId,
   ReasoningEffort,
   AppSettings,
+  AttachedDocument,
 } from './lib/types';
 import {
   loadConversations,
@@ -15,12 +16,13 @@ import {
   clearAllConversations,
   DEFAULT_SETTINGS,
 } from './lib/storage';
-import { generateId, generateTitleFromMessage } from './lib/utils';
+import { generateId, generateTitleFromMessage, formatFileSize } from './lib/utils';
 import { ChatHeader } from './components/chat-header';
 import { ChatSidebar } from './components/chat-sidebar';
 import { ChatMessage } from './components/chat-message';
 import { ChatInput } from './components/chat-input';
 import { SettingsModal } from './components/settings-modal';
+import { ClaudeLogo } from './components/claude-logo';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -54,6 +56,25 @@ export default function App() {
     }
     return 'low';
   });
+
+  const [isPlanMode, setIsPlanMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('nim_chat_plan_mode_v1') === 'true';
+    }
+    return false;
+  });
+
+  const handleTogglePlanMode = () => {
+    setIsPlanMode((prev) => {
+      const next = !prev;
+      localStorage.setItem('nim_chat_plan_mode_v1', String(next));
+      if (next && reasoningEffort === 'low') {
+        setReasoningEffort('high');
+        localStorage.setItem(REASONING_STORAGE_KEY, 'high');
+      }
+      return next;
+    });
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -214,15 +235,28 @@ export default function App() {
   };
 
   // Send Message
-  const handleSendMessage = async (text: string, images: string[]) => {
-    if (!text && images.length === 0) return;
+  const handleSendMessage = async (
+    text: string,
+    images: string[] = [],
+    documents: AttachedDocument[] = []
+  ) => {
+    if (!text && images.length === 0 && documents.length === 0) return;
     setErrorMessage(null);
+
+    // Auto-switch to GLM-5.3-Flash if images are attached
+    let effectiveModel = selectedModel;
+    if (images.length > 0 && selectedModel !== 'z-ai/glm-5.3-flash') {
+      effectiveModel = 'z-ai/glm-5.3-flash';
+      setSelectedModel('z-ai/glm-5.3-flash');
+      localStorage.setItem(MODEL_STORAGE_KEY, 'z-ai/glm-5.3-flash');
+    }
 
     const userMessage: Message = {
       id: generateId(),
       role: 'user',
       content: text,
       images: images.length > 0 ? images : undefined,
+      documents: documents.length > 0 ? documents : undefined,
       createdAt: Date.now(),
     };
 
@@ -232,14 +266,16 @@ export default function App() {
     if (!currentConvId || !currentConv) {
       // Create new conversation
       const newId = generateId();
-      const newTitle = generateTitleFromMessage(text || 'Imagem');
+      const firstDocName = documents[0]?.name;
+      const titleFallback = firstDocName ? `Arquivo: ${firstDocName}` : (images.length > 0 ? 'Imagem' : 'Nova conversa');
+      const newTitle = generateTitleFromMessage(text || titleFallback);
       const newConv: Conversation = {
         id: newId,
         title: newTitle,
         messages: [userMessage],
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        model: selectedModel,
+        model: effectiveModel,
         reasoningEffort: reasoningEffort,
       };
 
@@ -266,6 +302,8 @@ export default function App() {
       role: 'assistant',
       content: '',
       reasoning: '',
+      reasoningEffort: reasoningEffort,
+      isPlanMode: isPlanMode,
       createdAt: Date.now(),
     };
 
@@ -280,9 +318,43 @@ export default function App() {
     setIsStreaming(true);
 
     // Prepare payload messages
-    const contextMessages = currentConv
+    const rawMessages = currentConv
       ? [...currentConv.messages, userMessage]
       : [userMessage];
+
+    // Format any message with attached documents into formatted text
+    let contextMessages = rawMessages.map((m) => {
+      let content = m.content || '';
+      if (m.documents && m.documents.length > 0) {
+        const docsBlock = m.documents
+          .map(
+            (doc) =>
+              `[Arquivo anexado: ${doc.name} (${formatFileSize(doc.size)})]\n\`\`\`\n${doc.content}\n\`\`\``
+          )
+          .join('\n\n');
+        content = docsBlock + (content ? `\n\n${content}` : '');
+      }
+      return {
+        role: m.role,
+        content,
+        images: m.images,
+      };
+    });
+
+    // If Plan Mode is active, inject the Planning directive
+    if (isPlanMode) {
+      const planSystemPrompt = {
+        role: 'system',
+        content:
+          'Você é um estrategista e arquiteto de planejamento sênior. O MODO PLANO (FUNÇÃO PLAN) está ATIVADO. Para a solicitação do usuário, crie OBRIGATORIAMENTE um PLANO DE AÇÃO COMPLETO, PRÁTICO E EXECUTÁVEL, formatado estritamente com os seguintes tópicos em Markdown:\n\n' +
+          '🎯 1. OBJETIVO & RESULTADO ESPERADO (Definição clara da meta)\n' +
+          '📋 2. PRÉ-REQUISITOS & RECURSOS (Ferramentas, materiais ou conhecimentos prévios)\n' +
+          '🗓️ 3. FASES CRONOLÓGICAS PASSO A PASSO (Etapas divididas em Fases/Semanas com ações práticas numeradas)\n' +
+          '⚠️ 4. RISCOS, DESAFIOS & CONTINGÊNCIAS (Possíveis obstáculos e soluções preventivas)\n' +
+          '✅ 5. CRITÉRIOS DE SUCESSO & PRIMEIRO PASSO IMEDIATO (A primeira ação para começar hoje mesmo).',
+      };
+      contextMessages = [planSystemPrompt as any, ...contextMessages];
+    }
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -295,7 +367,7 @@ export default function App() {
         },
         body: JSON.stringify({
           messages: contextMessages,
-          model: selectedModel,
+          model: effectiveModel,
           reasoning_effort: reasoningEffort,
         }),
         signal: controller.signal,
@@ -422,34 +494,45 @@ export default function App() {
     }
   };
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  };
+
   const starterSuggestions = [
     {
+      category: 'Análise & Conceito',
       title: 'Explicar arquitetura',
       desc: 'Como funciona o mecanismo de Attention nos modelos Transformer?',
       model: 'z-ai/glm-5.3' as ModelId,
     },
     {
+      category: 'Código & Algoritmo',
       title: 'Algoritmo TypeScript',
-      desc: 'Escreva uma função debounce com cancelamento e tipagem completa.',
+      desc: 'Escreva uma função debounce com cancelamento e tipagem estrita.',
       model: 'z-ai/glm-5.3' as ModelId,
     },
     {
+      category: 'Visão & Diagnóstico',
       title: 'Análise de Imagens',
-      desc: 'Selecione o modelo Flash para anexar capturas de tela e obter diagnósticos.',
+      desc: 'Use o modelo Flash para anexar capturas de tela e obter diagnósticos.',
       model: 'z-ai/glm-5.3-flash' as ModelId,
     },
     {
-      title: 'Raciocínio Profundo',
-      desc: 'Resolva um problema de lógica passo a passo usando o reasoning max.',
+      category: 'Estratégia & Roteiro',
+      title: 'Criar Plano Estruturado',
+      desc: 'Ative a Função Plan para gerar um roteiro de ação com cronograma e fases.',
       model: 'z-ai/glm-5.3' as ModelId,
     },
   ];
 
   return (
-    <div className="flex h-screen w-full bg-zinc-950 text-zinc-100 overflow-hidden font-sans">
+    <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-[#1b1a17] text-[#f3efe6] overflow-hidden font-sans">
       {/* Offline Alert Bar */}
       {!isOnline && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-600/90 text-white text-xs py-1.5 px-4 flex items-center justify-center gap-2 shadow-md">
+        <div className="fixed top-0 left-0 right-0 z-50 bg-[#8c4a2f] text-white text-xs py-1.5 px-4 flex items-center justify-center gap-2 shadow-md">
           <WifiOff className="w-3.5 h-3.5" />
           <span>Modo Offline — Você pode visualizar conversas salvas no histórico.</span>
         </div>
@@ -469,28 +552,25 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full relative">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-[#1b1a17]">
         {/* Header */}
         <ChatHeader
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onNewChat={handleNewChat}
-          selectedModel={selectedModel}
-          onSelectModel={handleSelectModel}
-          reasoningEffort={reasoningEffort}
-          onSelectReasoningEffort={handleSelectReasoningEffort}
           hasApiKey={hasApiKey}
+          onOpenSettings={() => setIsSettingsOpen(true)}
         />
 
         {/* Global Error Banner */}
         {errorMessage && (
-          <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between shadow-lg">
+          <div className="mx-3 sm:mx-6 mt-3 p-3 rounded-xl bg-[#2e1d1a] border border-[#7a3429] text-[#f4ada3] text-xs flex items-center justify-between shadow-md">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 text-[#d97757] flex-shrink-0" />
               <span>{errorMessage}</span>
             </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="p-1 hover:text-white text-rose-400"
+              className="p-1 hover:text-white text-[#f4ada3] cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -500,24 +580,24 @@ export default function App() {
         {/* Messages or Empty State */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {!activeConversation || activeConversation.messages.length === 0 ? (
-            /* Empty Landing Screen */
-            <div className="h-full flex flex-col items-center justify-center px-4 max-w-2xl mx-auto text-center py-10">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 p-[1px] shadow-xl shadow-purple-900/30 mb-5 animate-in fade-in zoom-in duration-300">
-                <div className="w-full h-full bg-zinc-950 rounded-2xl flex items-center justify-center">
-                  <Bot className="w-8 h-8 text-purple-400" />
-                </div>
+            /* Claude.ai Empty Landing Screen */
+            <div className="h-full flex flex-col items-center justify-center px-4 sm:px-6 max-w-2xl mx-auto text-center py-4 sm:py-8 relative animate-in fade-in duration-300">
+              {/* Claude 8-pointed Asterisk Glyph */}
+              <div className="mb-3 sm:mb-4 flex items-center justify-center">
+                <ClaudeLogo className="w-10 h-10 sm:w-12 sm:h-12 text-[#d97757]" />
               </div>
 
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-2">
-                Synap
+              {/* Editorial Serif Heading like Claude.ai */}
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-normal text-[#f3efe6] tracking-tight mb-2">
+                {getGreeting()}, como posso ajudar?
               </h2>
-              <p className="text-sm text-zinc-400 max-w-md mb-8">
-                Inteligência conectada à NVIDIA NIM com modelos <span className="text-purple-400 font-medium">GLM-5.3</span> e{' '}
-                <span className="text-purple-400 font-medium">GLM-5.3-Flash</span>, raciocínio ajustável, visão e voz.
+              <p className="text-xs sm:text-sm text-[#a39d93] max-w-md mb-6 sm:mb-8 px-2 leading-relaxed">
+                Synap com modelos <span className="text-[#f3efe6] font-medium">GLM-5.3</span> e{' '}
+                <span className="text-[#f3efe6] font-medium">Flash</span> via NVIDIA NIM. Raciocínio estendido e Modo Plano integrados.
               </p>
 
-              {/* Suggestions grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full text-left">
+              {/* Claude Prompt Starters Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 w-full text-left">
                 {starterSuggestions.map((item, idx) => (
                   <button
                     key={idx}
@@ -526,14 +606,23 @@ export default function App() {
                       if (item.model) handleSelectModel(item.model);
                       handleSendMessage(item.desc, []);
                     }}
-                    className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/40 hover:bg-zinc-850 hover:border-purple-500/40 text-zinc-300 transition-all group cursor-pointer text-left shadow-xs"
+                    className="p-3.5 sm:p-4 rounded-xl border border-[#38352e] bg-[#24221e] hover:bg-[#2c2925] hover:border-[#4d483e] text-[#d8d3c9] transition-all group cursor-pointer text-left shadow-xs flex flex-col justify-between active:scale-[0.99]"
                   >
-                    <div className="text-xs font-semibold text-zinc-200 group-hover:text-purple-300 flex items-center justify-between mb-1">
-                      <span>{item.title}</span>
-                      <Sparkles className="w-3 h-3 text-purple-400 opacity-60 group-hover:opacity-100" />
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-medium text-[#d97757]">
+                        {item.category}
+                      </span>
+                      <span className="text-[10px] font-mono text-[#736e65]">
+                        {item.model === 'z-ai/glm-5.3-flash' ? 'Flash' : 'GLM-5.3'}
+                      </span>
                     </div>
-                    <div className="text-[12px] text-zinc-400 line-clamp-2 leading-relaxed">
-                      {item.desc}
+                    <div>
+                      <div className="text-xs sm:text-sm font-medium text-[#f3efe6] group-hover:text-white mb-1">
+                        {item.title}
+                      </div>
+                      <div className="text-[11px] sm:text-xs text-[#a39d93] line-clamp-2 leading-relaxed">
+                        {item.desc}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -541,7 +630,7 @@ export default function App() {
             </div>
           ) : (
             /* Message List */
-            <div className="py-4 divide-y divide-zinc-900/50">
+            <div className="py-4 divide-y divide-[#2d2a24]/60">
               {activeConversation.messages.map((msg, index) => (
                 <ChatMessage
                   key={msg.id}
@@ -560,6 +649,12 @@ export default function App() {
           onStopGeneration={handleStopGeneration}
           isLoading={isStreaming}
           isFlashModel={selectedModel === 'z-ai/glm-5.3-flash'}
+          selectedModel={selectedModel}
+          onSelectModel={handleSelectModel}
+          reasoningEffort={reasoningEffort}
+          onSelectReasoningEffort={handleSelectReasoningEffort}
+          isPlanMode={isPlanMode}
+          onTogglePlanMode={handleTogglePlanMode}
         />
       </div>
 

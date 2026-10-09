@@ -1,113 +1,73 @@
-import React, { useRef } from 'react';
-import { Paperclip, X } from 'lucide-react';
-import { fileToBase64 } from '../lib/utils';
+import React from 'react';
+import { X, FileText, Code, FileSpreadsheet, File } from 'lucide-react';
+import { AttachedDocument } from '../lib/types';
+import { formatFileSize } from '../lib/utils';
 
-interface ImageAttachmentProps {
-  isFlashModel: boolean;
+export interface FileAttachmentPreviewsProps {
   images: string[];
-  onImagesChange: (images: string[]) => void;
-  disabled?: boolean;
+  documents: AttachedDocument[];
+  onRemoveImage: (index: number) => void;
+  onRemoveDocument: (id: string) => void;
 }
 
-export const ImageAttachment: React.FC<ImageAttachmentProps> = ({
-  isFlashModel,
+export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
   images,
-  onImagesChange,
-  disabled = false,
+  documents,
+  onRemoveImage,
+  onRemoveDocument,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  if (images.length === 0 && documents.length === 0) return null;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const newImages: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const base64 = await fileToBase64(file);
-        newImages.push(base64);
-      } catch (err: any) {
-        alert(err.message || 'Erro ao carregar imagem');
-      }
+  const getDocIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'sql', 'sh', 'c', 'cpp', 'java', 'xml', 'yaml', 'yml'].includes(ext)) {
+      return <Code className="w-4 h-4 text-[#d97757]" />;
     }
-
-    if (newImages.length > 0) {
-      onImagesChange([...images, ...newImages]);
+    if (['csv', 'xlsx', 'xls'].includes(ext)) {
+      return <FileSpreadsheet className="w-4 h-4 text-emerald-400" />;
     }
-
-    // Reset input value to allow re-selecting the same file if needed
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (['pdf'].includes(ext)) {
+      return <File className="w-4 h-4 text-rose-400" />;
     }
-  };
-
-  const removeImage = (index: number) => {
-    const updated = images.filter((_, i) => i !== index);
-    onImagesChange(updated);
+    return <FileText className="w-4 h-4 text-[#d97757]" />;
   };
 
   return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        multiple
-        className="hidden"
-        onChange={handleFileChange}
-        disabled={!isFlashModel || disabled}
-      />
-
-      <div className="relative group inline-block">
-        <button
-          type="button"
-          onClick={() => {
-            if (isFlashModel && !disabled) {
-              fileInputRef.current?.click();
-            }
-          }}
-          disabled={!isFlashModel || disabled}
-          aria-label={
-            isFlashModel
-              ? 'Anexar imagens'
-              : 'O modelo atual não suporta imagens. Alterne para o GLM-5.3-Flash.'
-          }
-          className={`p-2.5 rounded-xl transition-all duration-200 flex items-center justify-center ${
-            !isFlashModel
-              ? 'text-zinc-600 cursor-not-allowed opacity-50'
-              : 'text-zinc-400 hover:text-purple-300 hover:bg-zinc-800/80 active:scale-95 cursor-pointer'
-          }`}
-        >
-          <Paperclip className="w-5 h-5" />
-        </button>
-
-        {!isFlashModel && (
-          <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-zinc-900 text-zinc-300 text-xs rounded-lg shadow-xl border border-zinc-800 text-center opacity-0 group-hover:opacity-100 transition-opacity z-50">
-            Modelo atual não suporta imagens. Alterne para o GLM-5.3-Flash no topo.
-          </div>
-        )}
-      </div>
-    </>
-  );
-};
-
-export const ImagePreviews: React.FC<{
-  images: string[];
-  onRemove: (index: number) => void;
-}> = ({ images, onRemove }) => {
-  if (images.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-2 px-3 pt-3 pb-1 border-b border-zinc-800/60">
+    <div className="flex flex-wrap gap-2 px-3 pt-3 pb-2 border-b border-[#312f2a]">
+      {/* Attached Images */}
       {images.map((img, idx) => (
-        <div key={idx} className="relative group rounded-lg overflow-hidden border border-zinc-700 bg-zinc-900 shadow-sm w-16 h-16 flex-shrink-0">
+        <div
+          key={`img-${idx}`}
+          className="relative group rounded-xl overflow-hidden border border-[#3b3831] bg-[#1a1916] shadow-sm w-16 h-16 flex-shrink-0"
+        >
           <img src={img} alt={`Anexo ${idx + 1}`} className="w-full h-full object-cover" />
           <button
             type="button"
-            onClick={() => onRemove(idx)}
+            onClick={() => onRemoveImage(idx)}
             aria-label="Remover imagem"
-            className="absolute top-1 right-1 p-0.5 rounded-full bg-zinc-950/80 text-zinc-300 hover:text-white hover:bg-rose-600 transition-colors"
+            className="absolute top-1 right-1 p-0.5 rounded-full bg-[#1b1a17]/90 text-[#a39d93] hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+
+      {/* Attached Documents / Code / Files */}
+      {documents.map((doc) => (
+        <div
+          key={doc.id}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#3b3831] bg-[#1a1916] text-[#f3efe6] text-xs shadow-sm max-w-xs group"
+        >
+          <div className="flex-shrink-0">{getDocIcon(doc.name)}</div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-xs text-[#f3efe6]">{doc.name}</div>
+            <div className="text-[10px] text-[#8c867a] font-mono">{formatFileSize(doc.size)}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRemoveDocument(doc.id)}
+            aria-label={`Remover ${doc.name}`}
+            className="p-1 rounded-md text-[#8c867a] hover:text-white hover:bg-[#2e2b26] transition-colors cursor-pointer flex-shrink-0"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -116,3 +76,16 @@ export const ImagePreviews: React.FC<{
     </div>
   );
 };
+
+// Also keep ImagePreviews alias for backward compatibility
+export const ImagePreviews: React.FC<{
+  images: string[];
+  onRemove: (index: number) => void;
+}> = ({ images, onRemove }) => (
+  <FileAttachmentPreviews
+    images={images}
+    documents={[]}
+    onRemoveImage={onRemove}
+    onRemoveDocument={() => {}}
+  />
+);

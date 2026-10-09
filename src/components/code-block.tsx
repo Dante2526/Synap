@@ -20,15 +20,15 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = 'text', value }
   };
 
   return (
-    <div className="relative my-4 rounded-xl border border-zinc-800 bg-zinc-950/90 overflow-hidden text-sm shadow-md">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800/80 bg-zinc-900/60 text-xs text-zinc-400">
-        <span className="font-mono text-zinc-300 uppercase tracking-wider font-semibold text-[11px]">
+    <div className="relative my-4 rounded-xl border border-[#38352e] bg-[#181614] overflow-hidden text-sm shadow-md">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#2d2a25] bg-[#22201c] text-xs text-[#a39d93]">
+        <span className="font-mono text-[#c4bfb6] uppercase tracking-wider font-semibold text-[11px]">
           {language}
         </span>
         <button
           onClick={handleCopy}
           aria-label="Copiar código"
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#2d2a25] transition-colors cursor-pointer"
         >
           {copied ? (
             <>
@@ -43,7 +43,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = 'text', value }
           )}
         </button>
       </div>
-      <div className="p-4 overflow-x-auto font-mono text-[13px] leading-relaxed text-zinc-200">
+      <div className="p-4 overflow-x-auto font-mono text-[13px] leading-relaxed text-[#ede9e1]">
         <pre>
           <code>{value}</code>
         </pre>

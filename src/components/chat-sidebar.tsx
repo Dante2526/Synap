@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Plus, MessageSquare, Trash2, Edit2, Check, X, Settings, Sparkles } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, Edit2, Check, X, Settings } from 'lucide-react';
 import { Conversation } from '../lib/types';
 import { formatDate } from '../lib/utils';
 import { PWAInstallButton } from './pwa-install-button';
+import { ClaudeLogo } from './claude-logo';
 
 interface ChatSidebarProps {
   conversations: Conversation[];
@@ -68,34 +69,32 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
         />
       )}
 
-      {/* Sidebar container */}
+      {/* Claude.ai Sidebar container */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-72 sm:w-80 bg-zinc-950 border-r border-zinc-800/80 flex flex-col transition-transform duration-300 ease-in-out ${
+        className={`fixed md:static inset-y-0 left-0 z-40 w-72 sm:w-80 bg-[#181714] border-r border-[#2d2a25] flex flex-col transition-transform duration-200 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
         {/* Top Header / App branding */}
-        <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
+        <div className="p-4 border-b border-[#2d2a25] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-            </div>
+            <ClaudeLogo className="w-6 h-6 text-[#d97757]" />
             <div>
-              <h1 className="text-sm font-semibold text-zinc-100 tracking-tight">Synap</h1>
-              <p className="text-[11px] text-zinc-500 font-mono">NVIDIA NIM • GLM</p>
+              <h1 className="font-serif text-base font-medium text-[#f3efe6] tracking-tight">Synap</h1>
+              <p className="text-[10px] text-[#8c867a] font-mono">Claude Design System</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
             aria-label="Fechar menu"
-            className="p-1 rounded-lg text-zinc-400 hover:text-white md:hidden"
+            className="p-1 rounded-lg text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#282622] md:hidden cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* New Chat Button */}
+        {/* New Chat Button (Claude style) */}
         <div className="p-3">
           <button
             type="button"
@@ -103,23 +102,23 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
               onNewChat();
               if (window.innerWidth < 768) onClose();
             }}
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800/90 text-zinc-200 hover:text-white font-medium text-sm transition-all shadow-xs cursor-pointer group"
+            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-[#3b3831] bg-[#22201d] hover:bg-[#2b2924] active:scale-[0.99] text-[#f3efe6] font-medium text-xs sm:text-sm transition-colors cursor-pointer group shadow-xs"
           >
-            <Plus className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
-            <span>Nova conversa</span>
+            <span className="font-medium">Iniciar novo chat</span>
+            <Plus className="w-4 h-4 text-[#d97757] group-hover:rotate-90 transition-transform duration-200" />
           </button>
         </div>
 
         {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-          <div className="text-[11px] font-medium text-zinc-500 px-2 py-1 uppercase tracking-wider">
-            Conversas recentes ({conversations.length})
+        <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
+          <div className="text-[10px] font-semibold text-[#736e65] px-3 py-1.5 uppercase tracking-wider font-mono">
+            Recentes ({conversations.length})
           </div>
 
           {conversations.length === 0 ? (
-            <div className="text-center py-10 px-4 text-zinc-600 text-xs">
-              Nenhuma conversa salva ainda.<br />
-              Comece enviando uma mensagem!
+            <div className="text-center py-12 px-4 text-[#736e65] text-xs">
+              Nenhuma conversa ainda.<br />
+              Comece uma nova conversa acima!
             </div>
           ) : (
             conversations.map((conv) => {
@@ -134,14 +133,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     onSelectConversation(conv.id);
                     if (window.innerWidth < 768) onClose();
                   }}
-                  className={`group relative flex items-center justify-between px-3 py-2.5 rounded-xl text-xs sm:text-sm cursor-pointer transition-all ${
+                  className={`group relative flex items-center justify-between px-3 py-2 rounded-lg text-xs sm:text-sm cursor-pointer transition-colors ${
                     isActive
-                      ? 'bg-zinc-900 text-purple-300 font-medium border border-purple-500/30'
-                      : 'text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200'
+                      ? 'bg-[#282622] text-[#f3efe6] font-medium border border-[#3b3831]'
+                      : 'text-[#b8b3a8] hover:bg-[#22201d] hover:text-[#f3efe6]'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-purple-400' : 'text-zinc-500'}`} />
+                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-[#d97757]' : 'text-[#736e65]'}`} />
 
                     {isEditing ? (
                       <form
@@ -154,7 +153,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                           autoFocus
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full bg-zinc-950 border border-purple-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                          className="w-full bg-[#1b1a17] border border-[#d97757] rounded-md px-2 py-0.5 text-xs text-white focus:outline-none"
                         />
                         <button
                           type="submit"
@@ -175,7 +174,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     ) : (
                       <div className="truncate flex-1">
                         <div className="truncate">{conv.title}</div>
-                        <div className="text-[10px] text-zinc-600 font-normal">
+                        <div className="text-[10px] text-[#736e65] font-normal">
                           {formatDate(conv.updatedAt)}
                         </div>
                       </div>
@@ -187,7 +186,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
                       {isDeleting ? (
                         <div
-                          className="flex items-center gap-1 bg-rose-950/80 border border-rose-800 rounded px-1.5 py-0.5"
+                          className="flex items-center gap-1 bg-[#3a1d1d] border border-rose-800 rounded-md px-1.5 py-0.5"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <span className="text-[10px] text-rose-300">Apagar?</span>
@@ -215,7 +214,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             type="button"
                             onClick={(e) => startRename(conv, e)}
                             aria-label="Renomear conversa"
-                            className="p-1 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded transition"
+                            className="p-1 text-[#736e65] hover:text-[#f3efe6] hover:bg-[#302d28] rounded-md transition"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -223,7 +222,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             type="button"
                             onClick={(e) => confirmDelete(conv.id, e)}
                             aria-label="Deletar conversa"
-                            className="p-1 text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 rounded transition"
+                            className="p-1 text-[#736e65] hover:text-rose-400 hover:bg-[#302d28] rounded-md transition"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -237,16 +236,16 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           )}
         </div>
 
-        {/* Bottom actions: PWA Install + Settings */}
-        <div className="p-3 border-t border-zinc-800/80 space-y-2">
+        {/* Bottom actions (Claude style) */}
+        <div className="p-3 border-t border-[#2d2a25] space-y-2">
           <PWAInstallButton />
 
           <button
             type="button"
             onClick={onOpenSettings}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 text-xs font-medium transition cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[#b8b3a8] hover:text-[#f3efe6] hover:bg-[#25231f] text-xs font-medium transition cursor-pointer"
           >
-            <Settings className="w-4 h-4 text-zinc-400" />
+            <Settings className="w-4 h-4 text-[#d97757]" />
             <span>Configurações</span>
           </button>
         </div>

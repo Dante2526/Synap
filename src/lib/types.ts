@@ -1,12 +1,23 @@
 export type Role = 'user' | 'assistant' | 'system';
 
+export interface AttachedDocument {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  content: string;
+}
+
 export interface Message {
   id: string;
   role: Role;
   content: string;
   images?: string[]; // base64 data URLs
+  documents?: AttachedDocument[];
   createdAt: number;
   reasoning?: string; // conteúdo do thinking (se vier separado ou extraído)
+  reasoningEffort?: ReasoningEffort; // 'low' | 'high' | 'max'
+  isPlanMode?: boolean;
 }
 
 export interface Conversation {

@@ -36,15 +36,30 @@ export function generateTitleFromMessage(content: string): string {
   return clean.slice(0, 32) + '...';
 }
 
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export async function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // Limit to 4MB for text/code files
+    if (file.size > 4 * 1024 * 1024) {
+      return reject(new Error('O arquivo de texto/código não pode ultrapassar 4MB.'));
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string) || '');
+    reader.onerror = (error) => reject(error);
+    reader.readAsText(file);
+  });
+}
+
 export async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Validate image type
-    if (!file.type.startsWith('image/')) {
-      return reject(new Error('Apenas arquivos de imagem são permitidos.'));
-    }
-    // Limit to 5MB
-    if (file.size > 5 * 1024 * 1024) {
-      return reject(new Error('A imagem não pode ultrapassar 5MB.'));
+    if (file.size > 10 * 1024 * 1024) {
+      return reject(new Error('A imagem não pode ultrapassar 10MB.'));
     }
 
     const reader = new FileReader();
