@@ -106,6 +106,13 @@ export interface Message {
   fallbackWarning?: string;
 }
 
+export interface ContextCompaction {
+  summary: string;
+  compactedUpToMessageId: string;
+  timestamp: number;
+  originalMessageCount: number;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -116,6 +123,7 @@ export interface Conversation {
   reasoningEffort: 'low' | 'high' | 'max';
   isPlanMode?: boolean;
   activeRepo?: ActiveRepoState | null;
+  contextCompaction?: ContextCompaction;
 }
 
 export type ModelId = 'z-ai/glm-5.3' | 'z-ai/glm-5.3-flash' | 'moonshotai/kimi-k3';
