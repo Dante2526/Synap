@@ -36,6 +36,8 @@ import { executeEmulatedCommand } from './lib/git-terminal-emulator';
 import { commitStagedChanges } from './lib/github-commit';
 import { StudioPanel } from './studio/studio-panel';
 import { ErrorModal, AppErrorInfo } from './components/error-modal';
+import { CompactionMarker } from './components/compaction-marker';
+import { prepareMessagesForApi, shouldCompact, compactConversation } from './lib/context-compactor';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -1112,68 +1114,52 @@ function AppContent() {
     setIsStreaming(true);
     setTimeout(() => scrollToBottom(true, true), 50);
 
-    const rawMessages = currentConv
-      ? [...currentConv.messages, userMessage]
-      : [userMessage];
-
-    let contextMessages: any[] = rawMessages.map((m) => {
-      let content = m.content || '';
-      if (m.documents && m.documents.length > 0) {
-        const docsBlock = m.documents
-          .map(
-            (doc) =>
-              `[Arquivo anexado: ${doc.name} (${formatFileSize(doc.size)})]\n\`\`\`\n${doc.content}\n\`\`\``
-          )
-          .join('\n\n');
-        content = docsBlock + (content ? `\n\n${content}` : '');
-      }
-      return {
-        role: m.role,
-        content,
-        images: m.images,
-      };
-    });
-
     // Injetar contexto de repositório apenas se vinculado a esta conversa
     const chatActiveRepo = activeRepo || (currentConv?.activeRepo ? currentConv.activeRepo : null);
-    if (chatActiveRepo) {
-      const repoSystemPrompt = {
-        role: 'system',
-        content:
-          `Você está conectado ao repositório GitHub ativo EXCLUSIVO DESTA CONVERSA: "${chatActiveRepo.fullName}" na branch "${chatActiveRepo.branch}".\n` +
-          `Você tem acesso às ferramentas de código: read_file, list_files, search_code e edit_file APENAS para o repositório "${chatActiveRepo.fullName}".\n` +
-          `Você NÃO tem permissão nem acesso a nenhum outro repositório do usuário. Cada conversa possui isolamento estrito de repositório.\n` +
-          `Ao propor alterações ou códigos para o repositório, utilize OBRIGATORIAMENTE a ferramenta edit_file. ` +
-          `A alteração ficará salva localmente no Source Control para o usuário revisar o diff e commitar.`,
-      };
-      contextMessages = [repoSystemPrompt, ...contextMessages];
-    }
 
-    // Prompt base instruindo o modelo sobre imagens e uso de ferramentas incluindo terminal
-    const baseSystemPrompt = {
-      role: 'system',
-      content:
-        'Você é o assistente Synap com ferramentas avançadas integradas.\n' +
-        'Regras estritas para ferramentas:\n' +
-        '1. Geração de Imagens: Quando o usuário pedir qualquer imagem ou ilustração, execute OBRIGATORIAMENTE a ferramenta `generate_image`. NUNCA invente, presuma ou escreva links de imagens ou sintaxe markdown como `![...](https://...)` no seu texto antes da execução da ferramenta.\n' +
-        '2. Emulador de Terminal Git: Você tem acesso à ferramenta `run_terminal_command` para executar comandos no Emulador de Terminal Git (ex: `git status`, `git log`, `git branch`, `git checkout`, `git commit`, `git diff`, `ls`, `cat <arquivo>`, `pwd`, `grep`, `echo`, etc.). Os comandos operam no repositório GitHub ativo. Sempre que o usuário pedir para executar comandos Git/Unix ou inspecionar o estado do repositório via terminal, EXECUTE a ferramenta `run_terminal_command` e relate a saída.\n' +
-        '3. Busca Web: Use `web_search` para consultar informações e fontes na internet.',
-    };
-    contextMessages = [baseSystemPrompt, ...contextMessages];
+    const repoPrompt = chatActiveRepo
+      ? `Você está conectado ao repositório GitHub ativo EXCLUSIVO DESTA CONVERSA: "${chatActiveRepo.fullName}" na branch "${chatActiveRepo.branch}".\n` +
+        `Você tem acesso às ferramentas de código: read_file, list_files, search_code e edit_file APENAS para o repositório "${chatActiveRepo.fullName}".\n` +
+        `Você NÃO tem permissão nem acesso a nenhum outro repositório do usuário. Cada conversa possui isolamento estrito de repositório.\n` +
+        `Ao propor alterações ou códigos para o repositório, utilize OBRIGATORIAMENTE a ferramenta edit_file. ` +
+        `A alteração ficará salva localmente no Source Control para o usuário revisar o diff e commitar.`
+      : undefined;
 
-    if (activePlan) {
-      const planSystemPrompt = {
-        role: 'system',
-        content:
-          'Você é um estrategista e arquiteto de planejamento sênior. O MODO PLANO (FUNÇÃO PLAN) está ATIVADO. Para a solicitação do usuário, crie OBRIGATORIAMENTE um PLANO DE AÇÃO COMPLETO, PRÁTICO E EXECUTÁVEL, formatado estritamente com os seguintes tópicos em Markdown:\n\n' +
-          '🎯 1. OBJETIVO & RESULTADO ESPERADO (Definição clara da meta)\n' +
-          '📋 2. PRÉ-REQUISITOS & RECURSOS (Ferramentas, materiais ou conhecimentos prévios)\n' +
-          '🗓️ 3. FASES CRONOLÓGICAS PASSO A PASSO (Etapas divididas em Fases/Semanas com ações práticas numeradas)\n' +
-          '⚠️ 4. RISCOS, DESAFIOS & CONTINGÊNCIAS (Possíveis obstáculos e soluções preventivas)\n' +
-          '✅ 5. CRITÉRIOS DE SUCESSO & PRIMEIRO PASSO IMEDIATO (A primeira ação para começar hoje mesmo).',
-      };
-      contextMessages = [planSystemPrompt, ...contextMessages];
-    }
+    const basePrompt =
+      'Você é o assistente Synap com ferramentas avançadas integradas.\n' +
+      'Regras estritas para ferramentas:\n' +
+      '1. Geração de Imagens: Quando o usuário pedir qualquer imagem ou ilustração, execute OBRIGATORIAMENTE a ferramenta `generate_image`. NUNCA invente, presuma ou escreva links de imagens ou sintaxe markdown como `![...](https://...)` no seu texto antes da execução da ferramenta.\n' +
+      '2. Emulador de Terminal Git: Você tem acesso à ferramenta `run_terminal_command` para executar comandos no Emulador de Terminal Git (ex: `git status`, `git log`, `git branch`, `git checkout`, `git commit`, `git diff`, `ls`, `cat <arquivo>`, `pwd`, `grep`, `echo`, etc.). Os comandos operam no repositório GitHub ativo. Sempre que o usuário pedir para executar comandos Git/Unix ou inspecionar o estado do repositório via terminal, EXECUTE a ferramenta `run_terminal_command` e relate a saída.\n' +
+      '3. Busca Web: Use `web_search` para consultar informações e fontes na internet.';
+
+    const planPrompt = activePlan
+      ? 'Você é um estrategista e arquiteto de planejamento sênior. O MODO PLANO (FUNÇÃO PLAN) está ATIVADO. Para a solicitação do usuário, crie OBRIGATORIAMENTE um PLANO DE AÇÃO COMPLETO, PRÁTICO E EXECUTÁVEL, formatado estritamente com os seguintes tópicos em Markdown:\n\n' +
+        '🎯 1. OBJETIVO & RESULTADO ESPERADO (Definição clara da meta)\n' +
+        '📋 2. PRÉ-REQUISITOS & RECURSOS (Ferramentas, materiais ou conhecimentos prévios)\n' +
+        '🗓️ 3. FASES CRONOLÓGICAS PASSO A PASSO (Etapas divididas em Fases/Semanas com ações práticas numeradas)\n' +
+        '⚠️ 4. RISCOS, DESAFIOS & CONTINGÊNCIAS (Possíveis obstáculos e soluções preventivas)\n' +
+        '✅ 5. CRITÉRIOS DE SUCESSO & PRIMEIRO PASSO IMEDIATO (A primeira ação para começar hoje mesmo).'
+      : undefined;
+
+    const convForPayload: Conversation = currentConv
+      ? { ...currentConv, messages: [...currentConv.messages, userMessage] }
+      : {
+          id: currentConvId,
+          title: generateTitleFromMessage(userMessage.content),
+          messages: [userMessage],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          model: effectiveModel,
+          reasoningEffort,
+          isPlanMode: activePlan,
+          activeRepo: chatActiveRepo,
+        };
+
+    const contextMessages = prepareMessagesForApi(convForPayload, {
+      base: basePrompt,
+      repo: repoPrompt,
+      plan: planPrompt,
+    });
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -1560,6 +1546,29 @@ function AppContent() {
           })
         );
       }
+
+      // Disparo assíncrono e não-bloqueante de Context Compaction (estilo Claude Code)
+      setConversations((prev) => {
+        const targetConv = prev.find((c) => c.id === currentConvId);
+        if (targetConv && shouldCompact(targetConv)) {
+          compactConversation(targetConv, import.meta.env.VITE_API_SECRET || '')
+            .then((compaction) => {
+              if (compaction) {
+                setConversations((inner) =>
+                  inner.map((c) =>
+                    c.id === currentConvId
+                      ? { ...c, contextCompaction: compaction }
+                      : c
+                  )
+                );
+              }
+            })
+            .catch((compactionErr) => {
+              console.warn('[ContextCompaction] Falha silenciosa em background:', compactionErr);
+            });
+        }
+        return prev;
+      });
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('Geração interrompida pelo usuário.');
@@ -1738,19 +1747,31 @@ function AppContent() {
             </div>
           ) : (
             <div className="py-4 divide-y divide-[#2d2a24]/60">
-              {activeConversation.messages.map((msg, index) => (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  isStreaming={isStreaming && index === activeConversation.messages.length - 1}
-                  onViewDiff={handleViewDiffForPath}
-                  onOpenTerminal={handleOpenTerminal}
-                  onOpenSourceControl={() => {
-                    setSidebarTab('source-control');
-                    setIsSidebarOpen(true);
-                  }}
-                />
-              ))}
+              {activeConversation.messages.map((msg, index) => {
+                const prevMsg = index > 0 ? activeConversation.messages[index - 1] : null;
+                const showCompactionMarker =
+                  activeConversation.contextCompaction &&
+                  prevMsg &&
+                  prevMsg.id === activeConversation.contextCompaction.compactedUpToMessageId;
+
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showCompactionMarker && (
+                      <CompactionMarker compaction={activeConversation.contextCompaction!} />
+                    )}
+                    <ChatMessage
+                      message={msg}
+                      isStreaming={isStreaming && index === activeConversation.messages.length - 1}
+                      onViewDiff={handleViewDiffForPath}
+                      onOpenTerminal={handleOpenTerminal}
+                      onOpenSourceControl={() => {
+                        setSidebarTab('source-control');
+                        setIsSidebarOpen(true);
+                      }}
+                    />
+                  </React.Fragment>
+                );
+              })}
               <div ref={messagesEndRef} className="h-4" />
             </div>
           )}
