@@ -291,6 +291,7 @@ function AppContent() {
   const isUserScrollingRef = useRef<boolean>(false);
   const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastRenderRef = useRef<number>(0);
 
   // Check backend server status
   useEffect(() => {
@@ -1278,27 +1279,33 @@ function AppContent() {
                   ? `${accumulatedReasoningText}\n\n${iterationReasoning}`
                   : iterationReasoning;
 
-                setConversations((prev) =>
-                  prev.map((c) => {
-                    if (c.id !== currentConvId) return c;
-                    return {
-                      ...c,
-                      messages: c.messages.map((m) =>
-                        m.id === assistantMessageId
-                          ? {
-                              ...m,
-                              content: currentCombinedText,
-                              reasoning: currentCombinedReasoning || undefined,
-                              editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
-                              toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-                              tokenUsage: iterationTokenUsage,
-                              fallbackWarning,
-                            }
-                          : m
-                      ),
-                    };
-                  })
-                );
+                // Throttle de renderização: atualiza UI no máximo a cada 50ms
+                // pra evitar jank visual com tokens muito rápidos
+                const now = Date.now();
+                if (!lastRenderRef.current || now - lastRenderRef.current > 50) {
+                  lastRenderRef.current = now;
+                  setConversations((prev) =>
+                    prev.map((c) => {
+                      if (c.id !== currentConvId) return c;
+                      return {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantMessageId
+                            ? {
+                                ...m,
+                                content: currentCombinedText,
+                                reasoning: currentCombinedReasoning || undefined,
+                                editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
+                                toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+                                tokenUsage: iterationTokenUsage,
+                                fallbackWarning,
+                              }
+                            : m
+                        ),
+                      };
+                    })
+                  );
+                }
               }
             } catch {}
           }
@@ -1486,7 +1493,28 @@ function AppContent() {
         console.log('Geração interrompida pelo usuário.');
       } else {
         console.error('Chat generation error:', err);
-        setErrorMessage(err.message || 'Falha ao processar resposta da IA.');
+        // Tratar erros de stream cortado / rede de forma mais amigável
+        const errMsg = err?.message || '';
+        const isNetworkError =
+          errMsg.includes('network') ||
+          errMsg.includes('fetch') ||
+          errMsg.includes('stream') ||
+          errMsg.includes('aborted') ||
+          errMsg.includes('connection') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError) {
+          setErrorMessage(
+            'Conexão interrompida durante a geração. A IA pode ter sido cortada por timeout ou oscilação de rede. ' +
+            'Tente novamente — se persistir, reduza o reasoning_effort pra "low" ou simplifique sua mensagem.'
+          );
+        } else if (errMsg.includes('429') || errMsg.includes('Too Many Requests')) {
+          setErrorMessage('Limite de requisições atingido. Aguarde 30 segundos e tente novamente.');
+        } else if (errMsg.includes('401') || errMsg.includes('Unauthorized')) {
+          setErrorMessage('Chave NVIDIA_API_KEY inválida ou expirada. Verifique nas Environment Variables da Vercel.');
+        } else {
+          setErrorMessage(errMsg || 'Falha ao processar resposta da IA.');
+        }
       }
     } finally {
       setIsStreaming(false);

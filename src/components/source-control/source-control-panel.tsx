@@ -236,6 +236,10 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
     setIsGeneratingCommitMsg(true);
     setCommitError(null);
 
+    // Timeout de 30s — se a IA não responder, aborta e mostra erro
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const filesSummary = changesToAnalyze
         .map((c) => {
@@ -269,6 +273,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
           model: 'z-ai/glm-5.3-flash',
           reasoning_effort: 'low',
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -284,35 +289,58 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
       let generatedText = '';
       let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const dataStr = trimmed.replace(/^data:\s*/, '');
-          if (dataStr === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(dataStr);
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.content) {
-              generatedText += delta.content;
-              const clean = generatedText.replace(/^["'`]+|["'`]+$/g, '').trim();
-              setCommitMessage(clean);
-            }
-          } catch {}
+      // Loop com timeout de leitura — se não receber dado em 10s, aborta
+      let lastChunkTime = Date.now();
+      const readTimeout = setInterval(() => {
+        if (Date.now() - lastChunkTime > 10000) {
+          controller.abort();
+          clearInterval(readTimeout);
         }
+      }, 1000);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          lastChunkTime = Date.now();
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const dataStr = trimmed.replace(/^data:\s*/, '');
+            if (dataStr === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(dataStr);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                generatedText += delta.content;
+                const clean = generatedText.replace(/^["'`]+|["'`]+$/g, '').trim();
+                setCommitMessage(clean);
+              }
+            } catch {}
+          }
+        }
+      } finally {
+        clearInterval(readTimeout);
+      }
+
+      if (!generatedText.trim()) {
+        throw new Error('IA não retornou texto. Tente novamente ou escreva manualmente.');
       }
     } catch (err: any) {
       console.error('Erro ao gerar mensagem de commit:', err);
-      setCommitError('Não foi possível gerar a mensagem com IA: ' + err.message);
+      if (err.name === 'AbortError') {
+        setCommitError('Tempo limite excedido (30s). A IA demorou demais. Escreva a mensagem manualmente ou tente novamente.');
+      } else {
+        setCommitError('Não foi possível gerar a mensagem com IA: ' + err.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsGeneratingCommitMsg(false);
     }
   };
@@ -356,8 +384,14 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
     } catch (err: any) {
       console.error('Commit error:', err);
       let msg = err?.message || 'Falha ao realizar commit no GitHub.';
-      if (err?.status === 403 || err?.status === 401) {
+      if (msg.includes('Tempo limite excedido') || err?.name === 'AbortError') {
+        msg = 'Timeout: o GitHub demorou demais pra responder. Pode ser rede lenta ou muitos arquivos. Tente novamente em alguns segundos.';
+      } else if (msg.includes('403') || msg.includes('401')) {
         msg = 'Permissão negada (403/401). Verifique se o seu token tem permissão "Contents: Read and write" ou se a branch é protegida.';
+      } else if (msg.includes('409')) {
+        msg = 'Conflito: o arquivo foi modificado no GitHub depois que você abriu. Recarregue o arquivo e tente novamente.';
+      } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        msg = 'Erro de rede ao contactar o GitHub. Verifique sua conexão e tente novamente.';
       }
       setCommitError(msg);
     } finally {

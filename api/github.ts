@@ -1,7 +1,8 @@
 import { Octokit } from '@octokit/rest';
 
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
+  maxDuration: 60,
 };
 
 function getEffectiveToken(req: Request): string | null {

@@ -1,7 +1,8 @@
 import { checkAuthAndRateLimit, ALLOWED_MODELS } from './_security';
 
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
+  maxDuration: 300, // 5 minutos — escapa do limite de 25s do edge runtime
 };
 
 export default async function handler(req: Request) {
@@ -145,7 +146,6 @@ export default async function handler(req: Request) {
         Authorization: `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify(payload),
-      signal: req.signal,
     });
 
     let fallbackType = 'none';
@@ -161,7 +161,6 @@ export default async function handler(req: Request) {
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(payload),
-        signal: req.signal,
       });
       fallbackType = 'no-reasoning';
     }
@@ -177,7 +176,6 @@ export default async function handler(req: Request) {
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(payload),
-        signal: req.signal,
       });
       fallbackType = fallbackType === 'no-reasoning' ? 'no-reasoning-and-tools' : 'no-tools';
     }
@@ -213,13 +211,27 @@ export default async function handler(req: Request) {
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
     };
 
     if (fallbackType !== 'none') {
       headers['x-fallback'] = fallbackType;
     }
 
-    return new Response(nvidiaRes.body, { headers });
+    // TransformStream que faz flush imediato de cada chunk recebido da NVIDIA
+    // Sem isso, a Vercel pode bufferizar e só mandar tudo de uma vez no final
+    const flushStream = new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+      },
+      flush(controller) {
+        controller.terminate();
+      },
+    });
+
+    const streamedBody = nvidiaRes.body ? nvidiaRes.body.pipeThrough(flushStream) : null;
+
+    return new Response(streamedBody, { headers });
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error?.message || 'Erro ao processar mensagem.' }), {
       status: 500,

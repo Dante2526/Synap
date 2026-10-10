@@ -1,7 +1,7 @@
 import { checkAuthAndRateLimit } from './_security';
 
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
   maxDuration: 60,
 };
 

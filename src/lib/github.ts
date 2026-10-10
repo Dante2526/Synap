@@ -60,17 +60,31 @@ export async function callGitHubApi<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`/api/github?${searchParams.toString()}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Timeout de 90s (commit com múltiplos arquivos pode demorar)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || `Erro na API GitHub (${res.status})`);
+  try {
+    const res = await fetch(`/api/github?${searchParams.toString()}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `Erro na API GitHub (${res.status})`);
+    }
+    return data as T;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Tempo limite excedido (90s). O GitHub pode estar lento ou o commit tem muitos arquivos. Tente novamente.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data as T;
 }
 
 export async function verifyGitHubPat(customPat?: string): Promise<GitHubUser> {

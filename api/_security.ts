@@ -1,5 +1,5 @@
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const MAX_REQUESTS_PER_MINUTE = 30;
+const MAX_REQUESTS_PER_MINUTE = 120; // Aumentado de 30 pra 120 — IA com tools faz muitas chamadas encadeadas
 
 export const ALLOWED_MODELS = [
   'z-ai/glm-5.3',
@@ -28,7 +28,12 @@ export function checkAuthAndRateLimit(req: Request): Response | null {
     }
   }
 
-  // 2. Rate Limit Check Simples
+  // 2. Rate Limit Check Simples (apenas se SYNAP_API_SECRET estiver definido — em uso pessoal, sem limites)
+  // Em uso pessoal sem auth, não aplicar rate limit (evita cortar chamadas encadeadas de tools)
+  if (!expectedSecret || expectedSecret.trim() === '') {
+    return null; // Sem auth = sem rate limit (uso pessoal)
+  }
+
   const ip = getClientIp(req);
   if (ip !== 'unknown') {
     const now = Date.now();
