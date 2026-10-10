@@ -39,9 +39,10 @@ export default async function handler(req: Request) {
 
     // Verify multimodal support
     const hasImages = messages.some((m: any) => m.images && Array.isArray(m.images) && m.images.length > 0);
-    if (hasImages && selectedModel !== 'z-ai/glm-5.3-flash') {
+    const isVisionModel = selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'z-ai/kimi-k3';
+    if (hasImages && !isVisionModel) {
       return new Response(
-        JSON.stringify({ error: 'Este modelo não suporta imagens. Use o modelo GLM-5.3-Flash.' }),
+        JSON.stringify({ error: 'Este modelo não suporta imagens. Use o modelo GLM-5.3-Flash ou Kimi K3.' }),
         {
           status: 400,
           headers: { 'Content-Type': 'application/json' },

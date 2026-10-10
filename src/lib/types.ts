@@ -111,7 +111,7 @@ export interface Conversation {
   activeRepo?: ActiveRepoState | null;
 }
 
-export type ModelId = 'z-ai/glm-5.3' | 'z-ai/glm-5.3-flash';
+export type ModelId = 'z-ai/glm-5.3' | 'z-ai/glm-5.3-flash' | 'z-ai/kimi-k3';
 export type ReasoningEffort = 'low' | 'high' | 'max';
 
 export interface AppSettings {

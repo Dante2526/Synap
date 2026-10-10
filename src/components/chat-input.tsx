@@ -19,7 +19,7 @@ interface ChatInputProps {
   onTogglePlanMode: () => void;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({
+export const ChatInput: React.FC<ChatInputProps> = React.memo(({
   onSendMessage,
   onStopGeneration,
   isLoading,
@@ -101,7 +101,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           newImages.push(base64);
 
           // Auto-switch to GLM-5.3-Flash for multimodal vision support if not already
-          if (selectedModel !== 'z-ai/glm-5.3-flash') {
+          const isVisionModel = selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'z-ai/kimi-k3';
+          if (!isVisionModel) {
             onSelectModel('z-ai/glm-5.3-flash');
             switchedToFlash = true;
           }
@@ -322,4 +323,4 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       />
     </div>
   );
-};
+});

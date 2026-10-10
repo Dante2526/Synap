@@ -247,7 +247,7 @@ function AppContent() {
   const [selectedModel, setSelectedModel] = useState<ModelId>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(MODEL_STORAGE_KEY);
-      if (saved === 'z-ai/glm-5.3' || saved === 'z-ai/glm-5.3-flash') return saved;
+      if (saved === 'z-ai/glm-5.3' || saved === 'z-ai/glm-5.3-flash' || saved === 'z-ai/kimi-k3') return saved;
     }
     return 'z-ai/glm-5.3';
   });
@@ -393,13 +393,15 @@ function AppContent() {
   const activeConversation = conversations.find((c) => c.id === activeId) || null;
 
   // Active repo changes count
-  const pendingChangesCount = activeRepo
-    ? changes.filter(
-        (c) => c.repo === activeRepo.fullName && c.branch === activeRepo.branch
-      ).length
-    : 0;
+  const pendingChangesCount = React.useMemo(() => {
+    return activeRepo
+      ? changes.filter(
+          (c) => c.repo === activeRepo.fullName && c.branch === activeRepo.branch
+        ).length
+      : 0;
+  }, [activeRepo, changes]);
 
-  const handleSelectRepo = (repo: ActiveRepoState) => {
+  const handleSelectRepo = useCallback((repo: ActiveRepoState) => {
     setActiveRepo(repo);
     if (activeId) {
       setConversations((all) =>
@@ -408,9 +410,9 @@ function AppContent() {
         )
       );
     }
-  };
+  }, [activeId]);
 
-  const handleCloseRepo = () => {
+  const handleCloseRepo = useCallback(() => {
     setActiveRepo(null);
     if (activeId) {
       setConversations((all) =>
@@ -419,9 +421,9 @@ function AppContent() {
         )
       );
     }
-  };
+  }, [activeId]);
 
-  const handleChangeBranch = (branch: string) => {
+  const handleChangeBranch = useCallback((branch: string) => {
     if (!activeRepo) return;
     const updated = { ...activeRepo, branch };
     setActiveRepo(updated);
@@ -432,7 +434,7 @@ function AppContent() {
         )
       );
     }
-  };
+  }, [activeRepo, activeId]);
 
   const handleOpenTerminal = useCallback(() => {
     setIsTerminalOpen(true);
@@ -450,7 +452,7 @@ function AppContent() {
     }
   }, [changes, activeRepo]);
 
-  const handleTogglePlanMode = () => {
+  const handleTogglePlanMode = useCallback(() => {
     setIsPlanMode((prev) => {
       const next = !prev;
       if (next && reasoningEffort === 'low') {
@@ -464,9 +466,9 @@ function AppContent() {
       }
       return next;
     });
-  };
+  }, [reasoningEffort, activeId]);
 
-  const handleSelectModel = (model: ModelId) => {
+  const handleSelectModel = useCallback((model: ModelId) => {
     setSelectedModel(model);
     localStorage.setItem(MODEL_STORAGE_KEY, model);
     if (activeId) {
@@ -474,9 +476,9 @@ function AppContent() {
         prev.map((c) => (c.id === activeId ? { ...c, model, updatedAt: Date.now() } : c))
       );
     }
-  };
+  }, [activeId]);
 
-  const handleSelectReasoningEffort = (effort: ReasoningEffort) => {
+  const handleSelectReasoningEffort = useCallback((effort: ReasoningEffort) => {
     setReasoningEffort(effort);
     localStorage.setItem(REASONING_STORAGE_KEY, effort);
     if (activeId) {
@@ -486,18 +488,18 @@ function AppContent() {
         )
       );
     }
-  };
+  }, [activeId]);
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     setActiveId(null);
     setIsPlanMode(false);
     setActiveRepo(null);
     if (window.innerWidth < 768) {
       setIsSidebarOpen(false);
     }
-  };
+  }, []);
 
-  const handleSelectConversation = (id: string) => {
+  const handleSelectConversation = useCallback((id: string) => {
     setActiveId(id);
     const target = conversations.find((c) => c.id === id);
     if (target) {
@@ -513,9 +515,9 @@ function AppContent() {
     if (window.innerWidth < 768) {
       setIsSidebarOpen(false);
     }
-  };
+  }, [conversations]);
 
-  const handleDeleteConversation = (id: string) => {
+  const handleDeleteConversation = useCallback((id: string) => {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) {
       const remaining = conversations.filter((c) => c.id !== id);
@@ -531,36 +533,36 @@ function AppContent() {
         setActiveRepo(null);
       }
     }
-  };
+  }, [activeId, conversations]);
 
-  const handleRenameConversation = (id: string, newTitle: string) => {
+  const handleRenameConversation = useCallback((id: string, newTitle: string) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, title: newTitle, updatedAt: Date.now() } : c))
     );
-  };
+  }, []);
 
-  const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
+  const handleUpdateSettings = useCallback((newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
       saveSettings(updated);
       return updated;
     });
-  };
+  }, []);
 
-  const handleClearHistory = async () => {
+  const handleClearHistory = useCallback(async () => {
     await clearAllConversations();
     setConversations([]);
     setActiveId(null);
     setIsPlanMode(false);
-  };
+  }, []);
 
-  const handleStopGeneration = () => {
+  const handleStopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     setIsStreaming(false);
-  };
+  }, []);
 
   // Helper to execute client-side GitHub and web tools
   const executeGitHubTool = async (
@@ -868,7 +870,7 @@ function AppContent() {
     return { result: JSON.stringify({ error: `Ferramenta desconhecida: ${name}` }) };
   };
 
-  const handleExecuteTerminalCommand = async (command: string) => {
+  const handleExecuteTerminalCommand = useCallback(async (command: string) => {
     setIsTerminalRunning(true);
     try {
       const termData = await executeEmulatedCommand(command, {
@@ -927,14 +929,14 @@ function AppContent() {
     } finally {
       setIsTerminalRunning(false);
     }
-  };
+  }, [activeRepo, changes, terminalCwd, clearCommitted]);
 
-  const handleClearTerminal = () => {
+  const handleClearTerminal = useCallback(() => {
     setTerminalEntries([]);
-  };
+  }, []);
 
   // Send Message with Tools support
-  const handleSendMessage = async (
+  const handleSendMessage = useCallback(async (
     text: string,
     images: string[] = [],
     documents: AttachedDocument[] = [],
@@ -946,7 +948,8 @@ function AppContent() {
     const activePlan = overridePlanMode !== undefined ? overridePlanMode : isPlanMode;
 
     let effectiveModel = selectedModel;
-    if (images.length > 0 && selectedModel !== 'z-ai/glm-5.3-flash') {
+    const isVisionModel = selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'z-ai/kimi-k3';
+    if (images.length > 0 && !isVisionModel) {
       effectiveModel = 'z-ai/glm-5.3-flash';
       setSelectedModel('z-ai/glm-5.3-flash');
       localStorage.setItem(MODEL_STORAGE_KEY, 'z-ai/glm-5.3-flash');
@@ -1382,7 +1385,7 @@ function AppContent() {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  };
+  }, [isPlanMode, selectedModel, activeId, activeConversation, reasoningEffort, activeRepo, conversations, changes]);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -1526,7 +1529,7 @@ function AppContent() {
           onSendMessage={handleSendMessage}
           onStopGeneration={handleStopGeneration}
           isLoading={isStreaming}
-          isFlashModel={selectedModel === 'z-ai/glm-5.3-flash'}
+          isFlashModel={selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'z-ai/kimi-k3'}
           selectedModel={selectedModel}
           onSelectModel={handleSelectModel}
           reasoningEffort={reasoningEffort}

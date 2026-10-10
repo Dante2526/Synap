@@ -17,7 +17,7 @@ interface ChatHeaderProps {
   isTerminalOpen?: boolean;
 }
 
-export const ChatHeader: React.FC<ChatHeaderProps> = ({
+export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   onToggleSidebar,
   onNewChat,
   hasApiKey,
@@ -177,4 +177,4 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
       </div>
     </header>
   );
-};
+});

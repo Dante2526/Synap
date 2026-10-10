@@ -38,7 +38,7 @@ interface ChatSidebarProps {
   pendingChangesCount: number;
 }
 
-export const ChatSidebar: React.FC<ChatSidebarProps> = ({
+export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
   conversations,
   activeId,
   onSelectConversation,
@@ -378,4 +378,4 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </aside>
     </>
   );
-};
+});

@@ -39,6 +39,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
       subtitle: 'Mais rápido + Suporte multimodal a visão e fotos',
       badge: 'Visão',
     },
+    {
+      id: 'z-ai/kimi-k3',
+      title: 'Kimi K3',
+      subtitle: 'Contexto longo e raciocínio avançado',
+      badge: 'Contexto',
+    },
   ];
 
   const reasoningLevels: Array<{

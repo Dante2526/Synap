@@ -139,7 +139,7 @@ export const AnsiText: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-export const TerminalPanel: React.FC<TerminalPanelProps> = ({
+export const TerminalPanel: React.FC<TerminalPanelProps> = React.memo(({
   isOpen,
   onClose,
   entries,
@@ -376,4 +376,4 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       </form>
     </div>
   );
-};
+});
