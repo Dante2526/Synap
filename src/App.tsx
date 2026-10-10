@@ -1188,7 +1188,7 @@ function AppContent() {
       let accumulatedAssistantText = '';
       let accumulatedReasoningText = '';
 
-      while (hasToolCallsToProcess && loopCount < 5) {
+      while (hasToolCallsToProcess && loopCount < 15) {
         loopCount++;
         hasToolCallsToProcess = false;
 
@@ -1537,6 +1537,28 @@ function AppContent() {
             ...toolResultMessages,
           ];
         }
+      }
+
+      // Aviso se atingiu o limite de iterações (IA foi cortada no meio)
+      if (loopCount >= 15 && hasToolCallsToProcess) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== currentConvId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      content:
+                        (m.content || '') +
+                        '\n\n---\n⚠️ **Aviso do Synap**: Atingi o limite de 15 rodadas de ferramentas nesta resposta. Se precisar que eu continue, mande uma mensagem pedindo pra continuar de onde parei.',
+                    }
+                  : m
+              ),
+            };
+          })
+        );
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
