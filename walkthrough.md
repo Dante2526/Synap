@@ -34,4 +34,12 @@ Durante esta sessão massiva de engenharia, efetuamos uma varredura completa na 
 - **Melhoria no Chunking:** O bloco `manualChunks` para `vendor-markdown` foi expandido para agrupar todo o ecossistema (incluindo dependências subjacentes como `mdast-*`, `hast-*`, `remark-`, `vfile`, e `unist-*`), eliminando riscos de dependências circulares.
 - **Lazy Loading Genuíno:** O pacote pesado `react-diff-viewer-continued` foi removido do `manualChunks` estático. Agora, ele é importado dinamicamente no momento exato em que a tela de Source Control é aberta via `React.lazy()` e `<Suspense>`, reduzindo significativamente o peso inicial do *bundle*.
 
-**Status atual da Aplicação:** Estável, ultra perfomática em Edge, segurada contra manipulações externas indevidas, e sem gargalos conhecidos. O *Deploy* está verde.
+## 8. Melhorias Visuais e Animações no Studio
+- **ThinkingOrb na Timeline:** Integrado o componente `ThinkingOrb` (da biblioteca `thinking-orbs`) aos avatares dos agentes no painel do Studio (`TimelineCard`), proporcionando feedback em tempo real idêntico ao do chat principal:
+  - **Planner (Kimi):** Modo `shaping` com animação suave e pulsante.
+  - **Revisor (GLM):** Modo `weaving` com ondas azuis dinâmicas.
+  - **Implementador:** Modo `composing` com velocidade otimizada (`2.0x`).
+- **Feedback de Sub-passos:** O `Loader2` estático dos passos de progresso (`step.status === 'in_progress'`) foi substituído por um mini `ThinkingOrb` no modo `working`.
+- **Elegância na Conclusão:** Quando o passo é concluído, o avatar retorna ao ícone nativo com um brilho suave (`drop-shadow`), mantendo o design refinado e limpo.
+
+**Status atual da Aplicação:** Estável, ultra perfomática em Edge, segurada contra manipulações externas indevidas, e com feedback visual de alto nível. O *Deploy* está verde.
