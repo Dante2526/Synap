@@ -1174,8 +1174,22 @@ function AppContent() {
         if (!response.ok) {
           let errMessage = `Erro na requisição (${response.status})`;
           try {
-            const errData = await response.json();
-            if (errData.error) errMessage = errData.error;
+            // Tenta ler como texto primeiro (Vercel pode retornar HTML em erros 500/502)
+            const text = await response.text();
+            try {
+              const errData = JSON.parse(text);
+              if (errData.error) errMessage = errData.error;
+              else if (errData.message) errMessage = errData.message;
+            } catch {
+              // Não é JSON — provavelmente é HTML de erro da Vercel
+              if (text && text.length < 500) {
+                errMessage = `Erro ${response.status}: ${text.substring(0, 200)}`;
+              } else if (response.status === 500) {
+                errMessage = 'Erro interno do servidor (500). Verifique os logs da Vercel em vercel.com/dashboard. Pode ser problema de build ou variável de ambiente faltando.';
+              } else if (response.status === 502) {
+                errMessage = 'Erro de gateway (502). A função serverless demorou demais ou caiu. Tente novamente.';
+              }
+            }
           } catch {}
           throw new Error(errMessage);
         }

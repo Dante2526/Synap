@@ -6,8 +6,13 @@ export const config = {
 };
 
 export default async function handler(req: Request) {
-  const securityResponse = checkAuthAndRateLimit(req);
-  if (securityResponse) return securityResponse;
+  try {
+    const securityResponse = checkAuthAndRateLimit(req);
+    if (securityResponse) return securityResponse;
+  } catch (secErr: any) {
+    console.error('Security check error:', secErr);
+    // Não bloqueia a requisição por erro de security check — apenas loga
+  }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Método não permitido.' }), {
@@ -125,7 +130,7 @@ export default async function handler(req: Request) {
         messages: formattedMessages,
         stream: true,
         stream_options: { include_usage: true },
-        max_tokens: 8192, // Limite rígido (GLM-5.3 suporta mais, mas previne drenagem excessiva)
+        max_tokens: 4096, // Reduzido de 8192 pra diminuir over-thinking e acelerar resposta
       };
       if (includeReasoning && selectedEffort && selectedEffort !== 'none' && selectedEffort !== 'default') {
         p.reasoning_effort = selectedEffort;
@@ -233,7 +238,13 @@ export default async function handler(req: Request) {
 
     return new Response(streamedBody, { headers });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.message || 'Erro ao processar mensagem.' }), {
+    console.error('Chat API error 500:', {
+      message: error?.message,
+      stack: error?.stack?.split('\n').slice(0, 5).join(' | '),
+      name: error?.name,
+    });
+    const errMsg = error?.message || 'Erro ao processar mensagem.';
+    return new Response(JSON.stringify({ error: errMsg, errorName: error?.name || 'Unknown' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
