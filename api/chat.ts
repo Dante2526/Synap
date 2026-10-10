@@ -234,11 +234,8 @@ export default async function handler(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const reader = nvidiaRes.body!.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            controller.enqueue(value);
+          for await (const chunk of nvidiaRes.body as any) {
+            controller.enqueue(chunk);
           }
           controller.close();
         } catch (streamErr: any) {
