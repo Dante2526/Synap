@@ -823,7 +823,7 @@ const TimelineCard: React.FC<TimelineCardProps> = ({ entry, onAction }) => {
           {entry.status === 'info' && entry.actor !== 'user' ? (
             <ThinkingOrb 
               state={entry.actor === 'planner' ? 'shaping' : entry.actor === 'reviewer' ? 'weaving' : 'composing'} 
-              size={24} 
+              size={20} 
               theme="dark" 
               speed={entry.actor === 'implementer' ? 2.0 : 1.5} 
             />
@@ -925,7 +925,7 @@ const TimelineCard: React.FC<TimelineCardProps> = ({ entry, onAction }) => {
                         <Check className="w-4 h-4 text-emerald-400" />
                       ) : step.status === 'in_progress' ? (
                         <div className="w-4 h-4 rounded-full flex items-center justify-center overflow-hidden">
-                          <ThinkingOrb state="working" size={16} theme="dark" speed={1.5} />
+                          <ThinkingOrb state="working" size={20} theme="dark" speed={1.5} />
                         </div>
                       ) : step.status === 'failed' ? (
                         <X className="w-4 h-4 text-rose-400" />
