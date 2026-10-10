@@ -1,5 +1,5 @@
 import { EdgeTTS } from '@andresaya/edge-tts';
-import { checkAuthAndRateLimit } from './_security';
+import { checkAuthAndRateLimit } from './_security.ts';
 
 export const config = {
   runtime: 'nodejs',

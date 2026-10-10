@@ -1,4 +1,4 @@
-import { checkAuthAndRateLimit, ALLOWED_MODELS } from './_security';
+import { checkAuthAndRateLimit, ALLOWED_MODELS } from './_security.ts';
 
 export const config = {
   runtime: 'nodejs',
@@ -225,16 +225,29 @@ export default async function handler(req: Request) {
 
     // TransformStream que faz flush imediato de cada chunk recebido da NVIDIA
     // Sem isso, a Vercel pode bufferizar e só mandar tudo de uma vez no final
-    const flushStream = new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-      },
-      flush(controller) {
-        controller.terminate();
-      },
-    });
-
-    const streamedBody = nvidiaRes.body ? nvidiaRes.body.pipeThrough(flushStream) : null;
+    // Fallback: se TransformStream não estiver disponível, usa o body direto
+    let streamedBody: ReadableStream<Uint8Array> | null = null;
+    try {
+      if (nvidiaRes.body) {
+        if (typeof TransformStream !== 'undefined') {
+          const flushStream = new TransformStream({
+            transform(chunk, controller) {
+              controller.enqueue(chunk);
+            },
+            flush(controller) {
+              controller.terminate();
+            },
+          });
+          streamedBody = nvidiaRes.body.pipeThrough(flushStream);
+        } else {
+          // Node mais antigo sem TransformStream global — usa body direto
+          streamedBody = nvidiaRes.body;
+        }
+      }
+    } catch (streamErr) {
+      console.warn('TransformStream setup failed, using raw body:', streamErr);
+      streamedBody = nvidiaRes.body;
+    }
 
     return new Response(streamedBody, { headers });
   } catch (error: any) {

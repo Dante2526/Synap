@@ -22,7 +22,7 @@ function getEffectiveToken(req: Request): string | null {
   return null;
 }
 
-import { checkAuthAndRateLimit } from './_security';
+import { checkAuthAndRateLimit } from './_security.ts';
 
 export default async function handler(req: Request): Promise<Response> {
   const securityResponse = checkAuthAndRateLimit(req);
