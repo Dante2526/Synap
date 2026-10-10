@@ -230,7 +230,31 @@ export default async function handler(req: Request) {
       });
     }
 
-    return new Response(nvidiaRes.body, {
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = nvidiaRes.body!.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch (streamErr: any) {
+          console.error('Stream reading error:', streamErr);
+          try {
+            controller.enqueue(
+              new TextEncoder().encode(`\ndata: {"error": "Stream interrupted: ${streamErr?.message || 'unknown'}"}\n\n`)
+            );
+            controller.close();
+          } catch {
+            // controller already closed
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
       status: nvidiaRes.status,
       headers,
     });
