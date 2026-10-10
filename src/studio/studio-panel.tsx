@@ -31,6 +31,7 @@ import { runPlanner, runReviewer, runImplementer } from './studio-engine';
 import { usePendingChanges } from '../lib/pending-changes';
 import { VoiceButton } from '../components/voice-button';
 import { FileAttachmentPreviews } from '../components/image-attachment';
+import { ThinkingOrb } from 'thinking-orbs';
 
 interface Props {
   activeRepo: ActiveRepoState | null;
@@ -817,9 +818,18 @@ const TimelineCard: React.FC<TimelineCardProps> = ({ entry, onAction }) => {
       {/* Header */}
       <div className="flex items-center gap-2 mb-2">
         <div
-          className={`w-6 h-6 rounded-lg ${actor.bg} border border-[#2d2b26] flex items-center justify-center`}
+          className={`w-6 h-6 rounded-lg ${actor.bg} border border-[#2d2b26] flex items-center justify-center overflow-hidden`}
         >
-          <actor.icon className={`w-3.5 h-3.5 ${actor.color}`} />
+          {entry.status === 'info' && entry.actor !== 'user' ? (
+            <ThinkingOrb 
+              state={entry.actor === 'planner' ? 'shaping' : entry.actor === 'reviewer' ? 'weaving' : 'composing'} 
+              size={24} 
+              theme="dark" 
+              speed={entry.actor === 'implementer' ? 2.0 : 1.5} 
+            />
+          ) : (
+            <actor.icon className={`w-3.5 h-3.5 ${actor.color} ${entry.status === 'success' ? 'drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]' : ''}`} />
+          )}
         </div>
         <span className="text-xs font-medium text-[#c4bfb6]">{actor.label}</span>
         <span className="text-[10px] text-[#5c5851] font-mono">
@@ -914,7 +924,9 @@ const TimelineCard: React.FC<TimelineCardProps> = ({ entry, onAction }) => {
                       {step.status === 'completed' ? (
                         <Check className="w-4 h-4 text-emerald-400" />
                       ) : step.status === 'in_progress' ? (
-                        <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center overflow-hidden">
+                          <ThinkingOrb state="working" size={16} theme="dark" speed={1.5} />
+                        </div>
                       ) : step.status === 'failed' ? (
                         <X className="w-4 h-4 text-rose-400" />
                       ) : (
