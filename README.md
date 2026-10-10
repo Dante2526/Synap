@@ -4,6 +4,20 @@ App web de chat com IA estilo ChatGPT, conectado à API da NVIDIA NIM (endpoint 
 
 ---
 
+## 📐 Antes de modificar o código
+
+> **AVISO PARA AGENTES IA e DESENVOLVEDORES**: Antes de modificar qualquer arquivo em `api/`, `vercel.json`, ou trocar `reasoning_effort` / `runtime`, **LEIA o [ARCHITECTURE.md](./ARCHITECTURE.md)**. Ele contém 15 regras críticas (com justificativas) sobre o que NÃO fazer e por quê — cada regra foi paga com erro 500 em produção.
+
+Decisões arquiteturais importantes documentadas lá:
+- Por que usar `runtime: 'edge'` (NUNCA `nodejs`)
+- Por que `_security.ts` NÃO pode estar em `api/`
+- Por que imports relativos NÃO podem ter extensão `.ts`
+- IDs corretos dos modelos NVIDIA (`moonshotai/kimi-k3`, não `z-ai/kimi-k3`)
+- Como resolver lentidão (modelo Flash + reasoning low, NÃO trocar runtime)
+- E mais 10 regras
+
+---
+
 ## 🚀 Como Rodar
 
 ### 1. Instalar dependências
