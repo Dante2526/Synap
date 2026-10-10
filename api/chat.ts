@@ -2,7 +2,7 @@ import { checkAuthAndRateLimit, ALLOWED_MODELS } from './_security';
 
 export const config = {
   runtime: 'nodejs',
-  maxDuration: 300, // 5 minutos — escapa do limite de 25s do edge runtime
+  maxDuration: 60, // 60s (limite do plano Hobby da Vercel)
 };
 
 export default async function handler(req: Request) {

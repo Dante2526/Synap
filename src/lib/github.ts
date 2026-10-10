@@ -72,7 +72,22 @@ export async function callGitHubApi<T>(
       signal: controller.signal,
     });
 
-    const data = await res.json();
+    // Tenta ler como texto primeiro, depois faz parse como JSON
+    // Isso evita o erro "Unexpected token" quando a Vercel retorna HTML (página de erro)
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Resposta não é JSON — provavelmente é página de erro da Vercel
+      const preview = text.substring(0, 200).replace(/\s+/g, ' ').trim();
+      throw new Error(
+        `Erro ${res.status}: o servidor retornou uma resposta inválida (não-JSON). ` +
+        `Isso geralmente indica que a função serverless está com problema ou o build falhou. ` +
+        `Verifique o painel da Vercel. Preview: "${preview}"`
+      );
+    }
+
     if (!res.ok) {
       throw new Error(data.error || `Erro na API GitHub (${res.status})`);
     }
