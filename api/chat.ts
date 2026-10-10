@@ -223,33 +223,9 @@ export default async function handler(req: Request) {
       headers['x-fallback'] = fallbackType;
     }
 
-    // TransformStream que faz flush imediato de cada chunk recebido da NVIDIA
-    // Sem isso, a Vercel pode bufferizar e só mandar tudo de uma vez no final
-    // Fallback: se TransformStream não estiver disponível, usa o body direto
-    let streamedBody: ReadableStream<Uint8Array> | null = null;
-    try {
-      if (nvidiaRes.body) {
-        if (typeof TransformStream !== 'undefined') {
-          const flushStream = new TransformStream({
-            transform(chunk, controller) {
-              controller.enqueue(chunk);
-            },
-            flush(controller) {
-              controller.terminate();
-            },
-          });
-          streamedBody = nvidiaRes.body.pipeThrough(flushStream);
-        } else {
-          // Node mais antigo sem TransformStream global — usa body direto
-          streamedBody = nvidiaRes.body;
-        }
-      }
-    } catch (streamErr) {
-      console.warn('TransformStream setup failed, using raw body:', streamErr);
-      streamedBody = nvidiaRes.body;
-    }
-
-    return new Response(streamedBody, { headers });
+    // Retorna o body direto da NVIDIA — sem TransformStream (que pode causar crash em Node runtime)
+    // A Vercel com Node.js runtime já faz streaming nativo sem precisar de TransformStream
+    return new Response(nvidiaRes.body, { headers });
   } catch (error: any) {
     console.error('Chat API error 500:', {
       message: error?.message,
