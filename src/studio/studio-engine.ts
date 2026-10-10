@@ -2,6 +2,7 @@
 import { ActiveRepoState } from '../lib/types';
 import { StudioAgent, StudioStep, StudioReview } from './studio-types';
 import { generateId } from '../lib/utils';
+import { getClientAuthHeaders } from '../lib/github';
 
 // Tools definitions no formato OpenAI/NVIDIA
 const READ_TOOLS = [
@@ -99,7 +100,10 @@ async function callChat(
 
   const response = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': import.meta.env.VITE_API_SECRET || '',
+    },
     body: JSON.stringify({
       messages: payloadMessages,
       model: agent.model,
@@ -175,11 +179,17 @@ async function executeTool(
   activeRepo: ActiveRepoState,
   onEditFile?: (path: string, content: string, type: 'create' | 'modify' | 'delete') => Promise<void>
 ): Promise<string> {
+  const githubHeaders = {
+    ...getClientAuthHeaders(),
+    'x-api-key': import.meta.env.VITE_API_SECRET || '',
+  };
+
   if (name === 'read_file') {
     const res = await fetch(
       `/api/github?action=file&owner=${activeRepo.owner}&repo=${activeRepo.repo}&path=${encodeURIComponent(
         args.path
-      )}&branch=${activeRepo.branch}`
+      )}&branch=${activeRepo.branch}`,
+      { headers: githubHeaders }
     );
     if (!res.ok) return `Erro: arquivo ${args.path} não encontrado`;
     const data = await res.json();
@@ -191,7 +201,8 @@ async function executeTool(
     const res = await fetch(
       `/api/github?action=contents&owner=${activeRepo.owner}&repo=${activeRepo.repo}&path=${encodeURIComponent(
         path
-      )}&branch=${activeRepo.branch}`
+      )}&branch=${activeRepo.branch}`,
+      { headers: githubHeaders }
     );
     if (!res.ok) return `Erro: diretório ${path} não encontrado`;
     const items = await res.json();

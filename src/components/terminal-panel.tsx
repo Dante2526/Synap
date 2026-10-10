@@ -197,7 +197,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = React.memo(({
     }
   };
 
-  const QUICK_COMMANDS = ['ls -la', 'git status', 'pwd', 'npm run lint', 'node -v'];
+  const QUICK_COMMANDS = ['tokens', 'git status', 'git log --oneline', 'ls -la', 'help'];
 
   return (
     <div
@@ -359,7 +359,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = React.memo(({
           value={inputCommand}
           onChange={(e) => setInputCommand(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isRunning ? 'Aguarde o comando atual…' : 'Digite um comando (ex: ls -la, git status, npm run...)'}
+          placeholder={isRunning ? 'Aguarde o comando atual…' : 'Digite um comando (ex: tokens, git status, git log, help)...'}
           disabled={isRunning}
           className="flex-1 bg-transparent border-none outline-none text-[#f3efe6] font-mono text-xs placeholder-[#5f5a50]"
         />

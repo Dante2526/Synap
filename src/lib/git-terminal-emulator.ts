@@ -175,6 +175,44 @@ export async function executeEmulatedCommand(
     // 1. UNIX / BASIC SYSTEM COMMANDS
     // ==========================================
 
+    if (command === 'tokens' || command === 'token' || command === 'usage' || command === 'stats') {
+      const activeModel = 'GLM-5.3 / GLM-5.3 Flash / Moonshot Kimi K3';
+      const output = [
+        '\x1b[38;2;217;119;87m⚡ Synap AI — Monitor de Consumo de Tokens & Contexto\x1b[0m',
+        '────────────────────────────────────────────────────────',
+        'Modelos Conectados:   ' + activeModel,
+        'Limite por Resposta:  8.192 tokens (max_tokens de segurança)',
+        'Janela de Contexto:   128.000 tokens (alta capacidade)',
+        'Streaming Usage:      stream_options: { include_usage: true } ativo',
+        'Otimização Ativa:     Truncamento de histórico de mídia e imagens',
+        '',
+        '\x1b[32m✓ Ferramenta de Monitoramento Ativa:\x1b[0m',
+        '  Cada resposta da IA no chat exibe o selo ⚡ com total de tokens.',
+        '  Toque ou clique no selo para detalhar tokens de Prompt e Resposta.',
+        '────────────────────────────────────────────────────────',
+      ].join('\n');
+      return makeResult(output);
+    }
+
+    if (command === 'help' || command === '--help') {
+      const helpText = [
+        '\x1b[38;2;217;119;87mSynap Git Terminal & Tool Emulator\x1b[0m',
+        '────────────────────────────────────────────────────────',
+        'Comandos Disponíveis:',
+        '  \x1b[33mtokens / stats\x1b[0m    Inspeciona consumo de tokens e contexto da IA',
+        '  \x1b[33mgit status\x1b[0m        Mostra o estado das alterações pendentes',
+        '  \x1b[33mgit log\x1b[0m           Lista o histórico real de commits do GitHub',
+        '  \x1b[33mgit branch\x1b[0m        Lista branches do repositório ativo',
+        '  \x1b[33mgit checkout <b\x1b[0m   Alterna de branch',
+        '  \x1b[33mgit commit -m\x1b[0m     Realiza commit e push para o GitHub',
+        '  \x1b[33mgit diff\x1b[0m          Exibe o diff unificado com realce de sintaxe',
+        '  \x1b[33mls / cat / pwd\x1b[0m    Navega e lê arquivos do repositório',
+        '  \x1b[33mclear\x1b[0m             Limpa a tela do terminal',
+        '────────────────────────────────────────────────────────',
+      ].join('\n');
+      return makeResult(helpText);
+    }
+
     if (command === 'clear') {
       if (context.onClearTerminal) {
         context.onClearTerminal();
@@ -554,6 +592,37 @@ Comandos suportados no Synap:
 
       // GIT PULL / FETCH
       if (subCommand === 'pull' || subCommand === 'fetch') {
+        const key = `synap_synced_sha_${owner}/${repo}_${branch}`;
+        try {
+          const recentCommits = await fetchRepoCommits(undefined, owner, repo, branch, 10);
+          if (recentCommits && recentCommits.length > 0) {
+            const latest = recentCommits[0];
+            const stored = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+
+            let msg = `From https://github.com/${owner}/${repo}\n * branch            ${branch}     -> FETCH_HEAD\n`;
+
+            if (stored && stored !== latest.sha && stored !== latest.short_sha) {
+              const incoming = recentCommits.filter((c) => c.sha !== stored && c.short_sha !== stored);
+              if (typeof window !== 'undefined') localStorage.setItem(key, latest.sha);
+              if (context.onRefreshRepo) context.onRefreshRepo();
+
+              msg += `Updating ${stored.slice(0, 7)}..${latest.short_sha}\nFast-forward\n`;
+              msg += ` ${incoming.length} commit(s) puxados com sucesso do GitHub:\n`;
+              for (const c of incoming.slice(0, 5)) {
+                msg += `  + [${c.short_sha}] ${c.message}\n`;
+              }
+              msg += `Branch local ${branch} sincronizada com origin/${branch}.`;
+              return makeResult(msg);
+            } else {
+              if (typeof window !== 'undefined') localStorage.setItem(key, latest.sha);
+              if (context.onRefreshRepo) context.onRefreshRepo();
+              return makeResult(
+                msg + `Already up to date. (HEAD sincronizado em ${latest.short_sha}: "${latest.message.slice(0, 45)}")`
+              );
+            }
+          }
+        } catch {}
+
         if (context.onRefreshRepo) {
           context.onRefreshRepo();
         }

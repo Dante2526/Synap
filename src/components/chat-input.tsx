@@ -17,6 +17,12 @@ interface ChatInputProps {
   onSelectReasoningEffort: (effort: ReasoningEffort) => void;
   isPlanMode: boolean;
   onTogglePlanMode: () => void;
+  conversationTokens?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  onOpenTerminal?: () => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = React.memo(({
@@ -30,6 +36,8 @@ export const ChatInput: React.FC<ChatInputProps> = React.memo(({
   onSelectReasoningEffort,
   isPlanMode,
   onTogglePlanMode,
+  conversationTokens,
+  onOpenTerminal,
 }) => {
   const [content, setContent] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -233,18 +241,14 @@ export const ChatInput: React.FC<ChatInputProps> = React.memo(({
             onKeyDown={handleKeyDown}
             placeholder={
               isPlanMode
-                ? 'Descreva seu projeto para criar um Plano Estruturado...'
-                : documents.length > 0
-                ? 'Faça uma pergunta sobre os arquivos anexados...'
-                : isFlashModel
-                ? 'Como posso ajudar com texto, arquivos ou imagens hoje?'
-                : 'Como posso ajudar você hoje?'
+                ? 'Escreva uma mensagem para criar um Plano Estruturado...'
+                : 'Escreva uma mensagem...'
             }
             className="w-full max-h-[160px] sm:max-h-[220px] py-1 px-1 text-sm sm:text-base text-[#f3efe6] placeholder-[#857f75] bg-transparent resize-none border-0 focus:outline-none focus:ring-0 leading-relaxed font-sans"
           />
 
           {/* Claude Bottom Toolbar */}
-          <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-[#312f2a]">
+          <div className="flex items-center justify-between gap-2 mt-2 pt-1">
             {/* Left Tools: Attachment (ALWAYS ENABLED) */}
             <div className="flex items-center gap-1">
               <button
@@ -320,6 +324,8 @@ export const ChatInput: React.FC<ChatInputProps> = React.memo(({
         onSelectReasoningEffort={onSelectReasoningEffort}
         isPlanMode={isPlanMode}
         onTogglePlanMode={onTogglePlanMode}
+        conversationTokens={conversationTokens}
+        onOpenTerminal={onOpenTerminal}
       />
     </div>
   );

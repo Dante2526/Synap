@@ -268,6 +268,11 @@ function AppContent() {
   const [isTerminalRunning, setIsTerminalRunning] = useState<boolean>(false);
   const [terminalCwd, setTerminalCwd] = useState<string>('/');
 
+  // Reset window scroll position when switching modes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }, [isStudioMode]);
+
   // Terminal shortcut (Ctrl + ` or Alt + T)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -321,13 +326,32 @@ function AppContent() {
     setSettings(loadedSettings);
 
     loadConversations().then((loaded) => {
-      setConversations(loaded);
-      if (loaded.length > 0) {
-        setActiveId(loaded[0].id);
-        if (loaded[0].model) setSelectedModel(loaded[0].model as ModelId);
-        if (loaded[0].reasoningEffort) setReasoningEffort(loaded[0].reasoningEffort);
-        if (loaded[0].isPlanMode !== undefined) setIsPlanMode(loaded[0].isPlanMode);
-        if (loaded[0].activeRepo) setActiveRepo(loaded[0].activeRepo);
+      // Backfill tokenUsage for any past assistant messages that don't have it
+      const enhanced = loaded.map((conv) => ({
+        ...conv,
+        messages: conv.messages.map((m) => {
+          if (m.role === 'assistant' && !m.tokenUsage && m.content) {
+            const promptEstimate = 45;
+            const completionEstimate = Math.max(1, Math.round(m.content.length / 3.6));
+            return {
+              ...m,
+              tokenUsage: {
+                promptTokens: promptEstimate,
+                completionTokens: completionEstimate,
+                totalTokens: promptEstimate + completionEstimate,
+              },
+            };
+          }
+          return m;
+        }),
+      }));
+      setConversations(enhanced);
+      if (enhanced.length > 0) {
+        setActiveId(enhanced[0].id);
+        if (enhanced[0].model) setSelectedModel(enhanced[0].model as ModelId);
+        if (enhanced[0].reasoningEffort) setReasoningEffort(enhanced[0].reasoningEffort);
+        if (enhanced[0].isPlanMode !== undefined) setIsPlanMode(enhanced[0].isPlanMode);
+        if (enhanced[0].activeRepo) setActiveRepo(enhanced[0].activeRepo);
         else setActiveRepo(null);
       }
     });
@@ -393,6 +417,24 @@ function AppContent() {
 
   // Active conversation helper
   const activeConversation = conversations.find((c) => c.id === activeId) || null;
+
+  // Active conversation token usage helper
+  const conversationTokens = React.useMemo(() => {
+    if (!activeConversation) {
+      return { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    }
+    return activeConversation.messages.reduce(
+      (acc, m) => {
+        if (m.tokenUsage) {
+          acc.promptTokens += m.tokenUsage.promptTokens || 0;
+          acc.completionTokens += m.tokenUsage.completionTokens || 0;
+          acc.totalTokens += m.tokenUsage.totalTokens || 0;
+        }
+        return acc;
+      },
+      { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    );
+  }, [activeConversation]);
 
   // Active repo changes count
   const pendingChangesCount = React.useMemo(() => {
@@ -1265,6 +1307,42 @@ function AppContent() {
         // Process tool calls if any were returned
         const detectedCalls = Object.values(toolCallsAccumulator).filter((c) => c && c.name);
 
+        // Se o streaming não enviou usage nos chunks, calcular estimativa precisa baseada em caracteres/tokens
+        if (!iterationTokenUsage) {
+          const promptLength = currentMessagesForApi.reduce((acc, m) => {
+            const contentStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+            return acc + contentStr.length;
+          }, 0);
+          const promptTokens = Math.max(1, Math.round(promptLength / 3.8));
+          const totalGeneratedLength =
+            (accumulatedAssistantText?.length || iterationText.length) +
+            (accumulatedReasoningText?.length || iterationReasoning.length);
+          const completionTokens = Math.max(1, Math.round(totalGeneratedLength / 3.5));
+          iterationTokenUsage = {
+            promptTokens,
+            completionTokens,
+            totalTokens: promptTokens + completionTokens,
+          };
+        }
+
+        // Garante que a mensagem do assistente receba o tokenUsage finalizado
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== currentConvId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      tokenUsage: iterationTokenUsage,
+                    }
+                  : m
+              ),
+            };
+          })
+        );
+
         // Se a iteração chamou generate_image, remove qualquer markdown de imagem acidental que o modelo tenha colocado antes da chamada da ferramenta
         if (detectedCalls.some((c) => c.name === 'generate_image')) {
           iterationText = iterationText.replace(/!\[[^\]]*\]\([^)]+\)/g, '').trim();
@@ -1516,7 +1594,19 @@ function AppContent() {
         )}
 
         {isStudioMode ? (
-          <StudioPanel activeRepo={activeRepo} />
+          <StudioPanel
+            activeRepo={activeRepo}
+            onOpenRepoSelector={() => {
+              setSidebarTab('repos');
+              setIsSidebarOpen(true);
+            }}
+            onOpenSourceControl={() => {
+              setSidebarTab('source-control');
+              setIsSidebarOpen(true);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onBackToChat={() => setIsStudioMode(false)}
+          />
         ) : (
           <>
             {/* Messages or Empty State */}
@@ -1571,6 +1661,8 @@ function AppContent() {
           onSelectReasoningEffort={handleSelectReasoningEffort}
           isPlanMode={isPlanMode}
           onTogglePlanMode={handleTogglePlanMode}
+          conversationTokens={conversationTokens}
+          onOpenTerminal={handleOpenTerminal}
         />
           </>
         )}

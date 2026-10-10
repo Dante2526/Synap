@@ -19,6 +19,9 @@ import {
   Clock,
   Sparkles,
   GitMerge,
+  ArrowDownCircle,
+  Download,
+  CheckCircle2,
 } from 'lucide-react';
 import { PendingChange, ActiveRepoState, GitHubCommitItem } from '../../lib/types';
 import { usePendingChanges } from '../../lib/pending-changes';
@@ -58,6 +61,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
   // Commit Form State
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isGeneratingCommitMsg, setIsGeneratingCommitMsg] = useState(false);
   const [commitSuccess, setCommitSuccess] = useState<{ sha: string; url: string } | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
@@ -75,6 +79,112 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
   const [isLoadingCommits, setIsLoadingCommits] = useState(false);
   const [commitsError, setCommitsError] = useState<string | null>(null);
   const [copiedSha, setCopiedSha] = useState<string | null>(null);
+
+  // Remote Sync & Pull State (Google AI Studio / VS Code style)
+  const [incomingCommits, setIncomingCommits] = useState<GitHubCommitItem[]>([]);
+  const [isCheckingRemote, setIsCheckingRemote] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+  const [showIncomingDetails, setShowIncomingDetails] = useState(false);
+
+  const getSyncStorageKey = useCallback(() => {
+    if (!activeRepo) return null;
+    return `synap_synced_sha_${activeRepo.fullName}_${activeRepo.branch}`;
+  }, [activeRepo]);
+
+  // Check remote commits against local synced state
+  const checkRemoteChanges = useCallback(
+    async (isSilent = false) => {
+      if (!activeRepo) return;
+      const key = getSyncStorageKey();
+      if (!key) return;
+
+      if (!isSilent) setIsCheckingRemote(true);
+      try {
+        const remoteCommits = await fetchRepoCommits(
+          undefined,
+          activeRepo.owner,
+          activeRepo.repo,
+          activeRepo.branch,
+          25
+        );
+
+        if (remoteCommits.length === 0) {
+          setIncomingCommits([]);
+          return;
+        }
+
+        const storedSha = localStorage.getItem(key);
+        if (!storedSha) {
+          // Âncora inicial: marca o commit mais recente como base
+          localStorage.setItem(key, remoteCommits[0].sha);
+          setIncomingCommits([]);
+        } else {
+          const foundIndex = remoteCommits.findIndex(
+            (c) => c.sha === storedSha || c.short_sha === storedSha
+          );
+          if (foundIndex === -1) {
+            // Houve novos commits que empurraram a lista
+            setIncomingCommits(remoteCommits.slice(0, 10));
+          } else if (foundIndex > 0) {
+            // Há commits remotos à frente
+            setIncomingCommits(remoteCommits.slice(0, foundIndex));
+          } else {
+            // Perfeitamente atualizado com o GitHub
+            setIncomingCommits([]);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao verificar alterações remotas:', err);
+      } finally {
+        if (!isSilent) setIsCheckingRemote(false);
+      }
+    },
+    [activeRepo, getSyncStorageKey]
+  );
+
+  // Pull changes handler
+  const handlePullChanges = async () => {
+    if (!activeRepo) return;
+    setIsPulling(true);
+    setPullSuccess(null);
+
+    try {
+      const remoteCommits = await fetchRepoCommits(
+        undefined,
+        activeRepo.owner,
+        activeRepo.repo,
+        activeRepo.branch,
+        15
+      );
+
+      const key = getSyncStorageKey();
+      if (remoteCommits.length > 0 && key) {
+        localStorage.setItem(key, remoteCommits[0].sha);
+      }
+
+      const count = incomingCommits.length > 0 ? incomingCommits.length : 1;
+      setIncomingCommits([]);
+      setShowIncomingDetails(false);
+      setPullSuccess(`Puxados com sucesso ${count} commit(s) do GitHub (${activeRepo.branch})!`);
+
+      await loadCommits();
+
+      setTimeout(() => {
+        setPullSuccess(null);
+      }, 5000);
+    } catch (err: any) {
+      alert('Erro ao puxar alterações: ' + (err?.message || 'Falha na comunicação com o GitHub'));
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeRepo) {
+      checkRemoteChanges(true);
+    }
+  }, [activeRepo?.fullName, activeRepo?.branch, checkRemoteChanges]);
 
   // Filter changes for current active repo
   const repoChanges = activeRepo
@@ -114,6 +224,98 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
       loadCommits();
     }
   }, [activeTab, activeRepo?.fullName, activeRepo?.branch, loadCommits]);
+
+  // Generate commit message using AI (Antigravity / Cursor style)
+  const handleGenerateCommitMessage = async () => {
+    const changesToAnalyze = stagedChanges.length > 0 ? stagedChanges : repoChanges;
+    if (changesToAnalyze.length === 0) {
+      setCommitError('Nenhuma alteração para analisar. Modifique ou adicione arquivos primeiro.');
+      return;
+    }
+
+    setIsGeneratingCommitMsg(true);
+    setCommitError(null);
+
+    try {
+      const filesSummary = changesToAnalyze
+        .map((c) => {
+          const sample = c.newContent ? c.newContent.slice(0, 300).replace(/\r?\n/g, ' ') : '';
+          return `- [${c.type}] ${c.path} (conteúdo: ${sample})`;
+        })
+        .join('\n');
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': import.meta.env.VITE_API_SECRET || '',
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Você é um assistente de desenvolvimento Git. Analise a lista de arquivos alterados e gere UMA ÚNICA mensagem de commit concisa, precisa e no padrão Conventional Commits (ex: feat(ui): ..., fix(auth): ..., refactor(api): ...).\n' +
+                'REGRAS:\n' +
+                '1. Máximo 72 caracteres.\n' +
+                '2. Responda EXCLUSIVAMENTE com a mensagem direta.\n' +
+                '3. NÃO use aspas, crases, nem explicações adicionais.',
+            },
+            {
+              role: 'user',
+              content: `Gere a mensagem de commit para estas alterações:\n${filesSummary}`,
+            },
+          ],
+          model: 'z-ai/glm-5.3-flash',
+          reasoning_effort: 'low',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Falha na API (${response.status})`);
+      }
+
+      if (!response.body) {
+        throw new Error('Nenhuma resposta retornada pelo servidor.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let generatedText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.replace(/^data:\s*/, '');
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta;
+            if (delta?.content) {
+              generatedText += delta.content;
+              const clean = generatedText.replace(/^["'`]+|["'`]+$/g, '').trim();
+              setCommitMessage(clean);
+            }
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro ao gerar mensagem de commit:', err);
+      setCommitError('Não foi possível gerar a mensagem com IA: ' + err.message);
+    } finally {
+      setIsGeneratingCommitMsg(false);
+    }
+  };
 
   const handleCommit = async () => {
     if (!activeRepo) return;
@@ -236,7 +438,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
       {/* Header */}
       <div className="p-3 border-b border-[#2d2a25] bg-[#1d1b18] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <GitBranch className="w-4 h-4 text-[#d97757]" />
+          <GitBranch className="w-4 h-4 text-emerald-400 shrink-0" />
           <h2 className="text-xs font-semibold uppercase tracking-wider text-[#c4bfb6]">
             Source Control
           </h2>
@@ -357,7 +559,118 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
                 <span>{branchSuccess}</span>
               </div>
             )}
+
+            {/* Remote Sync Bar (Fetch / Pull Status) */}
+            <div className="flex items-center justify-between pt-1.5 border-t border-[#2d2a25] text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#8c867a]">GitHub Remoto:</span>
+                {incomingCommits.length > 0 ? (
+                  <span className="text-amber-400 font-medium flex items-center gap-1">
+                    <ArrowDownCircle className="w-3 h-3 text-amber-400" />
+                    <span>{incomingCommits.length} para puxar</span>
+                  </span>
+                ) : (
+                  <span className="text-emerald-400/90 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Em dia
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {incomingCommits.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePullChanges}
+                    disabled={isPulling}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 border border-amber-500/40 text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    {isPulling ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Download className="w-2.5 h-2.5" />}
+                    <span>Puxar (Pull)</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => checkRemoteChanges(false)}
+                  disabled={isCheckingRemote}
+                  title="Verificar se há novos commits no GitHub"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#25231e] hover:bg-[#312e27] text-[#a39d93] hover:text-[#f3efe6] border border-[#3a362e] text-[10px] transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${isCheckingRemote ? 'animate-spin' : ''}`} />
+                  <span>{isCheckingRemote ? 'Buscando...' : 'Fetch'}</span>
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* Prominent Pull Banner when Remote has Incoming Commits */}
+          {incomingCommits.length > 0 && (
+            <div className="mx-3 mt-3 p-3 rounded-xl bg-gradient-to-r from-amber-950/60 via-orange-950/50 to-amber-950/40 border border-amber-500/40 text-amber-200 shadow-md flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <ArrowDownCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-xs font-semibold text-[#f3efe6]">
+                    {incomingCommits.length} alteração(ões) no GitHub para puxar (Pull)
+                  </span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-medium">
+                  {incomingCommits.length} commit(s)
+                </span>
+              </div>
+
+              <p className="text-[11px] text-[#c4bcaa] leading-relaxed">
+                Você enviou commits para a branch <strong>{activeRepo.branch}</strong> em outro lugar. Clique abaixo para sincronizar para o seu ambiente local.
+              </p>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handlePullChanges}
+                  disabled={isPulling}
+                  className="flex-1 py-1.5 px-3 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition disabled:opacity-50 cursor-pointer"
+                >
+                  {isPulling ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isPulling ? 'Puxando do GitHub...' : 'Puxar Alterações Agora (Pull)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowIncomingDetails(!showIncomingDetails)}
+                  className="py-1.5 px-2.5 rounded-lg bg-[#25231e] hover:bg-[#312e27] border border-[#3f3b33] text-[11px] text-[#c4bcaa] hover:text-white transition cursor-pointer"
+                >
+                  {showIncomingDetails ? 'Ocultar' : 'Ver Detalhes'}
+                </button>
+              </div>
+
+              {showIncomingDetails && (
+                <div className="mt-1 pt-2 border-t border-amber-500/20 space-y-1.5 max-h-40 overflow-y-auto">
+                  {incomingCommits.map((c) => (
+                    <div
+                      key={c.sha}
+                      className="text-[11px] p-2 rounded bg-[#171612] border border-[#2e2a23] flex items-start justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-[#f3efe6] truncate">{c.message}</div>
+                        <div className="text-[10px] text-[#8c867a] font-mono mt-0.5">
+                          {c.author.name} • {c.short_sha}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {pullSuccess && (
+            <div className="mx-3 mt-3 p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{pullSuccess}</span>
+            </div>
+          )}
 
           {/* Subtab navigation: Alterações vs Histórico */}
           <div className="flex items-center border-b border-[#2d2a25] bg-[#1a1815] px-2">
@@ -397,11 +710,34 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
             <div className="flex-1 flex flex-col">
               {/* Commit Message Box */}
               <div className="p-3 border-b border-[#2d2a25] space-y-2 bg-[#111217]">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-medium text-[#c4bfb6]">Mensagem de Commit</span>
+                  <button
+                    type="button"
+                    onClick={handleGenerateCommitMessage}
+                    disabled={isGeneratingCommitMsg || isCommitting || repoChanges.length === 0}
+                    title="Analisar os arquivos alterados e gerar mensagem no padrão Conventional Commits com IA"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/35 text-amber-300 hover:text-amber-200 transition text-[11px] font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    {isGeneratingCommitMsg ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                        <span>Analisando diff com IA...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                        <span>✨ Gerar com IA</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 <div className="relative">
                   <textarea
                     value={commitMessage}
                     onChange={(e) => setCommitMessage(e.target.value)}
-                    placeholder="Mensagem de commit (Cmd/Ctrl + Enter para enviar)"
+                    placeholder="Escreva a mensagem ou clique em '✨ Gerar com IA'..."
                     rows={2}
                     onKeyDown={(e) => {
                       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -409,7 +745,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
                         handleCommit();
                       }
                     }}
-                    disabled={isCommitting || repoChanges.length === 0}
+                    disabled={isCommitting || isGeneratingCommitMsg || repoChanges.length === 0}
                     className="w-full p-2.5 rounded-xl bg-[#131210] border border-[#3b3831] text-xs text-[#f3efe6] placeholder-[#6b665c] focus:outline-hidden focus:border-[#d97757] resize-none disabled:opacity-50"
                   />
                 </div>

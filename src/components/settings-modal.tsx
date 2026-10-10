@@ -18,6 +18,7 @@ import {
   FolderGit2,
   Loader2,
   LogOut,
+  Zap,
 } from 'lucide-react';
 import { AppSettings, Conversation, ModelId, ReasoningEffort } from '../lib/types';
 import { exportConversationsToJSON } from '../lib/storage';
@@ -502,6 +503,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               ))}
             </div>
           )}
+
+          {/* Token Usage & Infrastructure Card */}
+          <div className="rounded-xl bg-[#1d1b18] border border-[#312f2a] p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-[#2b2722] flex items-center justify-center text-[#d97757]">
+                <Zap className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm font-medium text-[#f3efe6]">Monitor de Tokens & Infraestrutura</div>
+                <div className="text-[10px] text-[#8c867a]">Controle de fluxo de tokens e cotas NVIDIA NIM</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-[#2d2a25]">
+              <div className="p-2.5 rounded-lg bg-[#181613] border border-[#2a2822]">
+                <span className="text-[10px] text-[#8c867a] block">Limite por Resposta</span>
+                <span className="font-mono text-[#f3efe6] font-semibold">8.192 tokens</span>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#181613] border border-[#2a2822]">
+                <span className="text-[10px] text-[#8c867a] block">Janela de Contexto</span>
+                <span className="font-mono text-[#f3efe6] font-semibold">128.000 tokens</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-[#8c867a] leading-relaxed pt-1">
+              Cada resposta da IA monitora os tokens de entrada (Prompt) e saída (Resposta). Você também pode acompanhar o consumo acumulado diretamente na barra de modelos (abaixo do chat) ou digitando <span className="text-[#f09a7d] font-mono">tokens</span> no Terminal.
+            </div>
+          </div>
 
           {/* Action buttons */}
           <div className="pt-2 space-y-2">

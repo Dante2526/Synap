@@ -126,17 +126,17 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
         </div>
 
         {/* Navigation Tabs (Chats / Repos / Source Control) */}
-        <div className="px-3 pt-2 pb-1.5 flex items-center gap-1 border-b border-[#2d2a25] bg-[#161512]">
+        <div className="px-3 pt-2 pb-1.5 flex items-center gap-1.5 border-b border-[#2d2a25] bg-[#161512]">
           <button
             type="button"
             onClick={() => onChangeTab('chats')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
               sidebarTab === 'chats'
-                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33] shadow-xs'
                 : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
+            <MessageSquare className="w-3.5 h-3.5 text-sky-400 shrink-0" />
             <span>Chat</span>
           </button>
 
@@ -145,11 +145,11 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
             onClick={() => onChangeTab('repos')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
               sidebarTab === 'repos'
-                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33] shadow-xs'
                 : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
             }`}
           >
-            <FolderGit2 className="w-3.5 h-3.5" />
+            <FolderGit2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>Repos</span>
           </button>
 
@@ -158,11 +158,11 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
             onClick={() => onChangeTab('source-control')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer relative ${
               sidebarTab === 'source-control'
-                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33]'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33] shadow-xs'
                 : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
             }`}
           >
-            <GitBranch className="w-3.5 h-3.5" />
+            <GitBranch className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>Git</span>
             {pendingChangesCount > 0 && (
               <span className="w-4 h-4 rounded-full bg-[#d97757] text-white text-[9px] font-bold flex items-center justify-center">

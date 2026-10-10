@@ -6,8 +6,9 @@ import { formatFileSize } from '../lib/utils';
 export interface FileAttachmentPreviewsProps {
   images: string[];
   documents: AttachedDocument[];
-  onRemoveImage: (index: number) => void;
-  onRemoveDocument: (id: string) => void;
+  onRemoveImage?: (index: number) => void;
+  onRemoveDocument?: (id: string) => void;
+  readOnly?: boolean;
 }
 
 export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
@@ -15,6 +16,7 @@ export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
   documents,
   onRemoveImage,
   onRemoveDocument,
+  readOnly = false,
 }) => {
   if (images.length === 0 && documents.length === 0) return null;
 
@@ -41,14 +43,16 @@ export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
           className="relative group rounded-xl overflow-hidden border border-[#3b3831] bg-[#1a1916] shadow-sm w-16 h-16 flex-shrink-0"
         >
           <img src={img} alt={`Anexo ${idx + 1}`} className="w-full h-full object-cover" />
-          <button
-            type="button"
-            onClick={() => onRemoveImage(idx)}
-            aria-label="Remover imagem"
-            className="absolute top-1 right-1 p-0.5 rounded-full bg-[#111217]/90 text-[#a39d93] hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          {!readOnly && onRemoveImage && (
+            <button
+              type="button"
+              onClick={() => onRemoveImage(idx)}
+              aria-label="Remover imagem"
+              className="absolute top-1 right-1 p-0.5 rounded-full bg-[#111217]/90 text-[#a39d93] hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       ))}
 
@@ -63,14 +67,16 @@ export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
             <div className="truncate font-medium text-xs text-[#f3efe6]">{doc.name}</div>
             <div className="text-[10px] text-[#8c867a] font-mono">{formatFileSize(doc.size)}</div>
           </div>
-          <button
-            type="button"
-            onClick={() => onRemoveDocument(doc.id)}
-            aria-label={`Remover ${doc.name}`}
-            className="p-1 rounded-md text-[#8c867a] hover:text-white hover:bg-[#2e2b26] transition-colors cursor-pointer flex-shrink-0"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          {!readOnly && onRemoveDocument && (
+            <button
+              type="button"
+              onClick={() => onRemoveDocument(doc.id)}
+              aria-label={`Remover ${doc.name}`}
+              className="p-1 rounded-md text-[#8c867a] hover:text-white hover:bg-[#2e2b26] transition-colors cursor-pointer flex-shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       ))}
     </div>

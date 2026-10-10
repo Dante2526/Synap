@@ -1,4 +1,30 @@
+import { AttachedDocument } from '../lib/types';
+
 export type AgentRole = 'planner' | 'reviewer' | 'implementer';
+
+export type TimelineActor = 'user' | 'planner' | 'reviewer' | 'implementer' | 'system';
+
+export interface StudioTimelineEntry {
+  id: string;
+  actor: TimelineActor;
+  timestamp: number;
+  type: 'message' | 'tool_call' | 'plan' | 'review' | 'progress' | 'approval_request' | 'completion' | 'error';
+  title?: string;
+  content?: string;
+  images?: string[];
+  documents?: AttachedDocument[];
+  toolName?: string;
+  toolArgs?: any;
+  toolResult?: string;
+  steps?: StudioStep[];
+  observations?: StudioReview['observations'];
+  actions?: Array<{
+    label: string;
+    variant: 'primary' | 'secondary' | 'danger';
+    onClick: () => void;
+  }>;
+  status?: 'success' | 'warning' | 'error' | 'info';
+}
 
 export interface StudioAgent {
   role: AgentRole;

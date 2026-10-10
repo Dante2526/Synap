@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cpu, Brain, Sparkles, X, ChevronDown, ListTodo, Check } from 'lucide-react';
+import { Cpu, Brain, Sparkles, X, ChevronDown, ListTodo, Check, Zap, Terminal } from 'lucide-react';
 import { ModelId, ReasoningEffort } from '../lib/types';
 
 interface ModelControlsProps {
@@ -9,6 +9,12 @@ interface ModelControlsProps {
   onSelectReasoningEffort: (effort: ReasoningEffort) => void;
   isPlanMode: boolean;
   onTogglePlanMode: () => void;
+  conversationTokens?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  onOpenTerminal?: () => void;
 }
 
 export const ModelControls: React.FC<ModelControlsProps> = ({
@@ -18,8 +24,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
   onSelectReasoningEffort,
   isPlanMode,
   onTogglePlanMode,
+  conversationTokens,
+  onOpenTerminal,
 }) => {
-  const [openSheet, setOpenSheet] = useState<'model' | 'reasoning' | null>(null);
+  const [openSheet, setOpenSheet] = useState<'model' | 'reasoning' | 'tokens' | null>(null);
 
   const models: Array<{
     id: ModelId;
@@ -90,7 +98,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             }`}
           >
             <span className="font-medium text-[#f3efe6]">
-              {selectedModel === 'z-ai/glm-5.3' ? 'GLM-5.3' : 'GLM Flash'}
+              {selectedModel === 'z-ai/glm-5.3'
+                ? 'GLM-5.3'
+                : selectedModel === 'moonshotai/kimi-k3'
+                ? 'Kimi K3'
+                : 'GLM Flash'}
             </span>
             <ChevronDown className="w-3.5 h-3.5 text-[#8c867a]" />
           </button>
@@ -134,6 +146,25 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
               {isPlanMode ? 'ON' : 'OFF'}
             </span>
           </button>
+
+          {/* Token Usage Tool Pill */}
+          <button
+            type="button"
+            onClick={() => setOpenSheet('tokens')}
+            aria-label="Ferramenta de Monitoramento de Tokens"
+            title="Clique para abrir a Ferramenta de Monitoramento de Tokens & Contexto"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors text-xs font-medium cursor-pointer ${
+              openSheet === 'tokens'
+                ? 'bg-[#d97757]/20 text-[#f09a7d] border border-[#d97757]/40 shadow-xs'
+                : 'bg-[#22201d] hover:bg-[#2c2925] border border-[#36332d] text-[#b8b3a8]'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-[#d97757]" />
+            <span className="text-[#8c867a] text-[11px]">tokens:</span>
+            <span className="font-mono font-medium text-[#f3efe6]">
+              {conversationTokens?.totalTokens ? conversationTokens.totalTokens.toLocaleString() : '0'}
+            </span>
+          </button>
         </div>
 
         <span className="text-[10px] text-[#6b675e] font-mono hidden sm:inline select-none">
@@ -156,12 +187,18 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#312f2a]">
               <div>
                 <h3 className="text-sm font-semibold text-[#f3efe6] tracking-tight">
-                  {openSheet === 'model' ? 'Modelo' : 'Pensamento Estendido (Reasoning)'}
+                  {openSheet === 'model'
+                    ? 'Modelo'
+                    : openSheet === 'reasoning'
+                    ? 'Pensamento Estendido (Reasoning)'
+                    : '⚡ Monitor de Tokens & Contexto'}
                 </h3>
                 <p className="text-xs text-[#9c9588] mt-0.5">
                   {openSheet === 'model'
                     ? 'Selecione o modelo do Synap'
-                    : 'Nível de raciocínio da IA antes de responder'}
+                    : openSheet === 'reasoning'
+                    ? 'Nível de raciocínio da IA antes de responder'
+                    : 'Estatísticas de consumo de tokens desta conversa'}
                 </p>
               </div>
               <button
@@ -174,8 +211,67 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
               </button>
             </div>
 
-            {/* List */}
-            {openSheet === 'model' ? (
+            {/* List or Content */}
+            {openSheet === 'tokens' ? (
+              <div className="space-y-3">
+                <div className="p-3.5 rounded-xl bg-[#1e1c19] border border-[#312f2a] space-y-2.5">
+                  <div className="flex items-center justify-between text-xs pb-1.5 border-b border-[#2c2924]">
+                    <span className="text-[#a8a296]">Tokens de Prompt (Entrada):</span>
+                    <span className="font-mono text-[#f3efe6] font-semibold">
+                      {conversationTokens?.promptTokens ? conversationTokens.promptTokens.toLocaleString() : '0'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs pb-1.5 border-b border-[#2c2924]">
+                    <span className="text-[#a8a296]">Tokens de Resposta (Saída / Raciocínio):</span>
+                    <span className="font-mono text-[#f3efe6] font-semibold">
+                      {conversationTokens?.completionTokens ? conversationTokens.completionTokens.toLocaleString() : '0'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs pt-0.5">
+                    <span className="text-[#d97757] font-semibold flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Total Consumido no Chat:</span>
+                    </span>
+                    <span className="font-mono text-[#d97757] font-bold text-sm">
+                      {conversationTokens?.totalTokens ? conversationTokens.totalTokens.toLocaleString() : '0'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#191714] border border-[#2d2b25] text-xs space-y-2 text-[#8c867a]">
+                  <div className="flex justify-between items-center">
+                    <span>Janela de Contexto Total:</span>
+                    <span className="text-[#c4bcaa] font-mono font-medium">128.000 tokens</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Limite por Resposta (max_tokens):</span>
+                    <span className="text-[#c4bcaa] font-mono font-medium">8.192 tokens</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Streaming Usage (NVIDIA):</span>
+                    <span className="text-emerald-400 font-mono font-medium">Ativo (include_usage)</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-[#8c867a] bg-[#1a1815] p-2.5 rounded-lg border border-[#272520] leading-relaxed">
+                  💡 <strong className="text-[#c4bfb6]">Dica:</strong> Cada resposta da IA também exibe o selo <span className="text-[#d97757]">⚡ [número] tokens</span> no rodapé. Clique nele para ver o consumo individual da mensagem.
+                </div>
+
+                {onOpenTerminal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenSheet(null);
+                      onOpenTerminal();
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-[#282520] hover:bg-[#332f29] border border-[#3a362f] text-xs font-mono text-[#f3efe6] flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    <Terminal className="w-3.5 h-3.5 text-[#d97757]" />
+                    <span>Abrir Monitor no Terminal (`tokens`)</span>
+                  </button>
+                )}
+              </div>
+            ) : openSheet === 'model' ? (
               <div className="space-y-1.5">
                 {models.map((item) => {
                   const isSelected = selectedModel === item.id;

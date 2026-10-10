@@ -69,7 +69,7 @@ export const RepoList: React.FC<RepoListProps> = ({
       {/* Top Header */}
       <div className="p-3 border-b border-[#2d2a25] bg-[#1d1b18] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FolderGit2 className="w-4 h-4 text-[#d97757]" />
+          <FolderGit2 className="w-4 h-4 text-amber-400 shrink-0" />
           <div>
             <h2 className="text-xs font-semibold uppercase tracking-wider text-[#c4bfb6]">
               Repositórios GitHub

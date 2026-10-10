@@ -1,5 +1,18 @@
 import React from 'react';
-import { PanelLeft, Plus, AlertCircle, Settings, FolderGit2, GitBranch, X, RefreshCw, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
+import {
+  PanelLeft,
+  Plus,
+  AlertCircle,
+  Settings,
+  FolderGit2,
+  GitBranch,
+  X,
+  RefreshCw,
+  Terminal as TerminalIcon,
+  ChevronDown,
+  MessageSquare,
+  Bot,
+} from 'lucide-react';
 import { ClaudeLogo } from './claude-logo';
 import { ActiveRepoState } from '../lib/types';
 
@@ -35,9 +48,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   onToggleStudioMode,
 }) => {
   return (
-    <header className="h-13 sm:h-14 border-b border-[#2d2b26] bg-[#111217]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between sticky top-0 z-30 select-none max-w-full overflow-hidden">
-      {/* Left side: Claude sidebar toggle & New chat */}
-      <div className="flex items-center gap-1.5 sm:gap-2">
+    <header className="h-14 sm:h-15 border-b border-[#2d2b26] bg-[#111217]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between relative sticky top-0 z-30 select-none max-w-full">
+      {/* Left side: Claude sidebar toggle & New chat (New chat hidden on mobile to avoid clutter) */}
+      <div className="flex items-center gap-1.5 sm:gap-2 z-10 shrink-0">
         <button
           type="button"
           onClick={onToggleSidebar}
@@ -52,17 +65,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           onClick={onNewChat}
           aria-label="Nova conversa"
           title="Nova conversa"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#c2bcb0] hover:text-[#f3efe6] hover:bg-[#282622] text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#c2bcb0] hover:text-[#f3efe6] hover:bg-[#282622] text-xs sm:text-sm font-medium transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4 text-[#d97757]" />
-          <span className="hidden sm:inline">Nova conversa</span>
+          <span>Nova conversa</span>
         </button>
-      </div>
 
-      {/* Center: Synap Branding or Active Repo Indicator */}
-      <div className="flex items-center gap-2 max-w-[50%] min-w-0">
         {activeRepo ? (
-          <div className="flex items-center gap-1.5 p-1 px-2.5 rounded-xl bg-[#23211d] border border-[#3e3b33] text-xs font-mono min-w-0 shadow-xs">
+          <div className="hidden xl:flex items-center gap-1.5 p-1 px-2.5 rounded-xl bg-[#23211d] border border-[#3e3b33] text-xs font-mono min-w-0 shadow-xs ml-1">
             <button
               type="button"
               onClick={onOpenSourceControl}
@@ -70,7 +80,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
               className="flex items-center gap-1.5 text-[#f3efe6] hover:text-[#d97757] transition truncate cursor-pointer"
             >
               <FolderGit2 className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
-              <span className="truncate max-w-[120px] sm:max-w-[190px] font-medium">
+              <span className="truncate max-w-[120px] sm:max-w-[170px] font-medium">
                 {activeRepo.fullName}
               </span>
               <span className="text-[#8c867a]">·</span>
@@ -88,71 +98,53 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
                 <span>●{pendingChangesCount}</span>
               </button>
             )}
-
-            {onOpenRepoList && (
-              <button
-                type="button"
-                onClick={onOpenRepoList}
-                title="Trocar repositório deste chat"
-                className="p-1 rounded text-[#8c867a] hover:text-[#f3efe6] hover:bg-[#322f28] transition cursor-pointer ml-0.5"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
-            )}
-
-            {onCloseRepo && (
-              <button
-                type="button"
-                onClick={onCloseRepo}
-                title="Desconectar repositório deste chat"
-                className="p-1 rounded text-[#8c867a] hover:text-rose-400 hover:bg-[#322f28] transition cursor-pointer"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
         ) : (
-          <div className="flex items-center gap-2.5">
+          <div className="hidden lg:flex items-center gap-2.5 ml-1">
             <div className="flex items-center gap-2">
               <ClaudeLogo className="w-5 h-5 text-[#d97757]" />
               <span className="font-serif text-base sm:text-lg text-[#f3efe6] tracking-tight font-normal">
                 Synap
               </span>
             </div>
-            {onOpenRepoList && (
-              <button
-                type="button"
-                onClick={onOpenRepoList}
-                title="Conectar um repositório GitHub exclusivamente a este chat"
-                className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#24221d] hover:bg-[#2e2a23] text-[#8c867a] hover:text-[#f3efe6] border border-[#38342c] text-[11px] font-sans transition cursor-pointer"
-              >
-                <FolderGit2 className="w-3 h-3 text-[#d97757]" />
-                <span>Vincular Repo</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        {onToggleStudioMode && (
-          <div className="hidden md:flex ml-4 bg-[#181714] border border-[#2d2b26] rounded-lg p-0.5">
-            <button
-              onClick={() => onToggleStudioMode(false)}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${!isStudioMode ? 'bg-[#2d2b26] text-[#f3efe6] shadow-sm' : 'text-[#8c867a] hover:text-[#c4bfb6]'}`}
-            >
-              💬 Chat
-            </button>
-            <button
-              onClick={() => onToggleStudioMode(true)}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${isStudioMode ? 'bg-[#2d2b26] text-amber-400 shadow-sm' : 'text-[#8c867a] hover:text-amber-400/80'}`}
-            >
-              ✨ Studio
-            </button>
           </div>
         )}
       </div>
 
+      {/* Center: Exactly Centered Chat / Studio Switcher */}
+      {onToggleStudioMode && (
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-auto z-20">
+          <div className="flex bg-[#181714] border border-[#2d2b26] rounded-xl p-1 shadow-md">
+            <button
+              type="button"
+              onClick={() => onToggleStudioMode(false)}
+              className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer ${
+                !isStudioMode
+                  ? 'bg-[#d97757] text-white shadow-sm font-semibold'
+                  : 'text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#25231e]'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 shrink-0" />
+              <span>Chat</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleStudioMode(true)}
+              className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all cursor-pointer ${
+                isStudioMode
+                  ? 'bg-[#d97757] text-white shadow-sm font-semibold'
+                  : 'text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#25231e]'
+              }`}
+            >
+              <Bot className="w-4 h-4 shrink-0" />
+              <span>Studio</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Right side: Terminal button & Settings */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 z-10">
         {hasApiKey === false && (
           <div
             title="Chave de API não configurada no servidor (.env.local)"
@@ -169,16 +161,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
             onClick={onToggleTerminal}
             aria-label="Alternar Terminal"
             title="Abrir/Fechar Terminal (Ctrl+`)"
-            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg border text-xs font-mono transition-colors duration-150 cursor-pointer select-none ${
+            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors duration-150 cursor-pointer select-none ${
               isTerminalOpen
                 ? 'bg-[#d97757]/20 text-[#f09a7d] border-[#d97757]/40 shadow-xs'
                 : 'bg-[#25231f] hover:bg-[#2e2a24] text-[#c4bfb6] hover:text-[#f3efe6] border-[#36332d]'
             }`}
           >
-            <TerminalIcon className="w-3.5 h-3.5 text-[#d97757]" />
-            <span className="font-medium">Terminal</span>
+            <TerminalIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-[#d97757] shrink-0" />
+            <span className="hidden sm:inline font-medium">Terminal</span>
             <ChevronDown
-              className={`w-3.5 h-3.5 text-[#8c867a] transition-transform duration-200 ${
+              className={`hidden sm:inline w-3.5 h-3.5 text-[#8c867a] transition-transform duration-200 ${
                 isTerminalOpen ? 'rotate-180 text-[#d97757]' : ''
               }`}
             />
@@ -190,7 +182,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
             type="button"
             onClick={onOpenSettings}
             aria-label="Configurações"
-            className="p-1.5 rounded-lg text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#282622] transition-colors cursor-pointer hidden sm:block"
+            title="Configurações"
+            className="p-1.5 rounded-lg text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#282622] transition-colors cursor-pointer"
           >
             <Settings className="w-4 h-4" />
           </button>

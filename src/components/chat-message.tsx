@@ -188,6 +188,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const isUser = message.role === 'user';
   const [showReasoning, setShowReasoning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showTokenDetails, setShowTokenDetails] = useState(false);
 
   // Extract reasoning if formatted with <think>...</think> tags or message.reasoning
   let thinkingContent = message.reasoning || '';
@@ -937,27 +938,59 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <SpeakButton text={displayContent} />
 
               {message.tokenUsage && (
-                <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#1e1c18] border border-[#312f2a] shadow-inner cursor-default group relative">
-                  <Zap className="w-3 h-3 text-[#d97757]" />
-                  <span className="text-[11px] font-medium text-[#c4bcaa]">
-                    {message.tokenUsage.totalTokens.toLocaleString()}
-                  </span>
-                  
-                  {/* Tooltip on hover */}
-                  <div className="absolute bottom-full right-0 mb-2 w-max p-2.5 rounded-xl bg-[#1e1c18] border border-[#3b3831] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 flex flex-col gap-1.5 translate-y-1 group-hover:translate-y-0">
-                    <div className="text-[10px] uppercase tracking-wider text-[#736e63] font-semibold mb-0.5">Consumo de Tokens</div>
-                    <div className="flex justify-between items-center gap-4 text-xs">
-                      <span className="text-[#9c9589]">Prompt</span>
+                <div className="ml-auto relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowTokenDetails((prev) => !prev)}
+                    title="Clique para ver detalhamento do consumo de tokens"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#1e1c18] border border-[#312f2a] hover:border-[#d97757]/50 shadow-inner cursor-pointer text-[#c4bcaa] hover:text-[#f3efe6] transition-colors group select-none"
+                  >
+                    <Zap className="w-3 h-3 text-[#d97757] group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px] font-medium font-mono">
+                      {message.tokenUsage.totalTokens.toLocaleString()}{' '}
+                      <span className="text-[10px] text-[#8c867a]">tokens</span>
+                    </span>
+                  </button>
+
+                  {/* Tooltip / Modal popover on hover or click */}
+                  <div
+                    className={`absolute bottom-full right-0 mb-2 w-52 sm:w-56 p-3 rounded-xl bg-[#1e1c18]/95 backdrop-blur-md border border-[#3b3831] shadow-2xl transition-all duration-200 z-30 flex flex-col gap-1.5 ${
+                      showTokenDetails
+                        ? 'opacity-100 visible translate-y-0'
+                        : 'opacity-0 invisible pointer-events-none translate-y-1'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between border-b border-[#312f2a] pb-1.5 mb-0.5">
+                      <div className="text-[10px] uppercase tracking-wider text-[#d97757] font-semibold flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        <span>Consumo de Tokens</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowTokenDetails(false);
+                        }}
+                        className="text-[#736e63] hover:text-[#f3efe6] text-xs px-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[#9c9589]">Prompt (Entrada)</span>
                       <span className="text-[#f3efe6] font-mono">{message.tokenUsage.promptTokens.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between items-center gap-4 text-xs">
-                      <span className="text-[#9c9589]">Resposta</span>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[#9c9589]">Resposta (Saída)</span>
                       <span className="text-[#f3efe6] font-mono">{message.tokenUsage.completionTokens.toLocaleString()}</span>
                     </div>
                     <div className="w-full h-px bg-[#312f2a] my-0.5" />
-                    <div className="flex justify-between items-center gap-4 text-xs font-medium">
-                      <span className="text-[#d97757]">Total</span>
+                    <div className="flex justify-between items-center text-xs font-medium">
+                      <span className="text-[#d97757]">Total Consumido</span>
                       <span className="text-[#d97757] font-mono">{message.tokenUsage.totalTokens.toLocaleString()}</span>
+                    </div>
+                    <div className="text-[9px] text-[#736e63] mt-1 pt-1 border-t border-[#2a2822]">
+                      Limite por requisição: 8.192 tokens
                     </div>
                   </div>
                 </div>
