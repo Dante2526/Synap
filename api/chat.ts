@@ -230,24 +230,10 @@ export default async function handler(req: Request) {
       });
     }
 
-    // Criar um ReadableStream proxy seguro para Node runtime / Vercel
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of nvidiaRes.body as any) {
-            controller.enqueue(chunk);
-          }
-          controller.close();
-        } catch (streamErr: any) {
-          console.error('Stream reading error:', streamErr);
-          try {
-            controller.error(streamErr);
-          } catch {}
-        }
-      },
+    return new Response(nvidiaRes.body, {
+      status: nvidiaRes.status,
+      headers,
     });
-
-    return new Response(stream, { headers });
   } catch (error: any) {
     console.error('Chat API error 500:', {
       message: error?.message,
