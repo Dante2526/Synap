@@ -223,9 +223,34 @@ export default async function handler(req: Request) {
       headers['x-fallback'] = fallbackType;
     }
 
-    // Retorna o body direto da NVIDIA — sem TransformStream (que pode causar crash em Node runtime)
-    // A Vercel com Node.js runtime já faz streaming nativo sem precisar de TransformStream
-    return new Response(nvidiaRes.body, { headers });
+    if (!nvidiaRes.body) {
+      return new Response(JSON.stringify({ error: 'Resposta da NVIDIA veio sem corpo (body vazio).' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Criar um ReadableStream proxy seguro para Node runtime / Vercel
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = nvidiaRes.body!.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch (streamErr: any) {
+          console.error('Stream reading error:', streamErr);
+          try {
+            controller.error(streamErr);
+          } catch {}
+        }
+      },
+    });
+
+    return new Response(stream, { headers });
   } catch (error: any) {
     console.error('Chat API error 500:', {
       message: error?.message,
