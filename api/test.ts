@@ -2,7 +2,7 @@
 // Se esse funcionar e /api/chat não, sabemos que o problema é específico do chat.ts
 
 export const config = {
-  runtime: 'nodejs',
+  runtime: 'edge',
 };
 
 export default async function handler(req: Request) {

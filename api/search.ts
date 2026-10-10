@@ -1,6 +1,5 @@
 export const config = {
-  runtime: 'nodejs',
-  maxDuration: 30,
+  runtime: 'edge',
 };
 
 interface SearchResult {
