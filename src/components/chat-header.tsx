@@ -30,6 +30,8 @@ interface ChatHeaderProps {
   isTerminalOpen?: boolean;
   isStudioMode?: boolean;
   onToggleStudioMode?: (isStudio: boolean) => void;
+  errorCount?: number;
+  onOpenErrors?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
@@ -46,6 +48,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   isTerminalOpen = false,
   isStudioMode = false,
   onToggleStudioMode,
+  errorCount = 0,
+  onOpenErrors,
 }) => {
   return (
     <header className="h-14 sm:h-15 border-b border-[#2d2b26] bg-[#111217]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between relative sticky top-0 z-30 select-none max-w-full">
@@ -153,6 +157,21 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
             <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Sem Chave</span>
           </div>
+        )}
+
+        {errorCount > 0 && onOpenErrors && (
+          <button
+            type="button"
+            onClick={onOpenErrors}
+            title={`${errorCount} erro(s) registrado(s). Clique para inspecionar.`}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-950/70 border border-red-500/50 text-red-300 text-xs font-medium hover:bg-red-900/70 transition-all cursor-pointer animate-pulse"
+          >
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span className="hidden sm:inline">Erros</span>
+            <span className="px-1.5 py-0.2 bg-red-900 text-red-200 rounded text-[10px] font-bold">
+              {errorCount}
+            </span>
+          </button>
         )}
 
         {onToggleTerminal && (

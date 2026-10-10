@@ -35,6 +35,7 @@ import { TerminalPanel, TerminalEntry } from './components/terminal-panel';
 import { executeEmulatedCommand } from './lib/git-terminal-emulator';
 import { commitStagedChanges } from './lib/github-commit';
 import { StudioPanel } from './studio/studio-panel';
+import { ErrorModal, AppErrorInfo } from './components/error-modal';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -229,6 +230,26 @@ function AppContent() {
   const [hasGeminiKey, setHasGeminiKey] = useState<boolean | null>(null);
   const [hasGitHubToken, setHasGitHubToken] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [activeError, setActiveError] = useState<AppErrorInfo | null>(null);
+  const [errorHistory, setErrorHistory] = useState<AppErrorInfo[]>([]);
+
+  const reportAppError = useCallback((title: string, message: string, options?: { status?: number; endpoint?: string; rawResponse?: string; stack?: string }) => {
+    const newErr: AppErrorInfo = {
+      id: generateId(),
+      title,
+      message,
+      status: options?.status,
+      endpoint: options?.endpoint,
+      rawResponse: options?.rawResponse,
+      stack: options?.stack,
+      timestamp: Date.now(),
+    };
+    setActiveError(newErr);
+    setErrorHistory((prev) => [newErr, ...prev.slice(0, 19)]);
+    setIsErrorModalOpen(true);
+  }, []);
 
   // Settings
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -1529,6 +1550,11 @@ function AppContent() {
         } else {
           setErrorMessage(errMsg || 'Falha ao processar resposta da IA.');
         }
+        reportAppError('Erro na Geração de IA', errMsg || 'Falha ao processar resposta da IA', {
+          endpoint: '/api/chat',
+          stack: err?.stack,
+          rawResponse: err?.toString(),
+        });
       }
     } finally {
       setIsStreaming(false);
@@ -1617,6 +1643,8 @@ function AppContent() {
           isTerminalOpen={isTerminalOpen}
           isStudioMode={isStudioMode}
           onToggleStudioMode={setIsStudioMode}
+          errorCount={errorHistory.length}
+          onOpenErrors={() => setIsErrorModalOpen(true)}
         />
 
         {/* Global Error Banner */}
@@ -1744,6 +1772,15 @@ function AppContent() {
         hasApiKey={hasApiKey}
         hasGeminiKey={hasGeminiKey}
         hasGitHubToken={hasGitHubToken}
+      />
+
+      {/* Error Inspector Modal */}
+      <ErrorModal
+        error={activeError}
+        errorHistory={errorHistory}
+        isOpen={isErrorModalOpen}
+        onClose={() => setIsErrorModalOpen(false)}
+        onClearHistory={() => setErrorHistory([])}
       />
     </div>
   );
