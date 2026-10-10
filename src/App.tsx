@@ -272,7 +272,7 @@ function AppContent() {
       const saved = localStorage.getItem(MODEL_STORAGE_KEY);
       if (saved === 'z-ai/glm-5.3' || saved === 'z-ai/glm-5.3-flash' || saved === 'moonshotai/kimi-k3') return saved;
     }
-    return 'z-ai/glm-5.3';
+    return 'z-ai/glm-5.3-flash'; // Default mais rápido (Flash) - GLM-5.3 full demora muito pra responder
   });
 
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
@@ -280,8 +280,23 @@ function AppContent() {
       const saved = localStorage.getItem(REASONING_STORAGE_KEY);
       if (saved === 'low' || saved === 'high' || saved === 'max') return saved;
     }
-    return 'low';
+    return 'low'; // Always low by default - 'max' is slow and 'high' is unnecessary for most tasks
   });
+
+  // One-time migration: if user has 'max' or 'high' saved, reset to 'low' for faster responses
+  // This runs once when the app loads to fix slow responses from previous settings
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = localStorage.getItem(REASONING_STORAGE_KEY);
+    const MIGRATION_KEY = 'synap_reasoning_migration_v1';
+    const migrated = localStorage.getItem(MIGRATION_KEY);
+    if (!migrated && (saved === 'max' || saved === 'high')) {
+      localStorage.setItem(REASONING_STORAGE_KEY, 'low');
+      localStorage.setItem(MIGRATION_KEY, 'true');
+      setReasoningEffort('low');
+      console.log('[Synap] Reasoning effort reset to low for faster responses (one-time migration)');
+    }
+  }, []);
 
   const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState<boolean>(false);
