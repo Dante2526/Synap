@@ -11,15 +11,6 @@
       "destination": "/index.html"
     }
   ],
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "edge"
-    },
-    "api/image.ts": {
-      "runtime": "edge",
-      "maxDuration": 60
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
