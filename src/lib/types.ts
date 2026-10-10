@@ -17,6 +17,7 @@ export interface PendingChange {
   branch: string;
   type: ChangeType;
   originalContent?: string; // undefined se added
+  baseSha?: string; // SHA do arquivo quando lido para evitar conflitos de update (lost update)
   newContent: string; // novo conteúdo
   createdAt: number;
   staged: boolean;
@@ -97,6 +98,12 @@ export interface Message {
     files: MessageEditedFile[];
   };
   toolCalls?: MessageToolCall[]; // histórico e status das chamadas de ferramentas executadas
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  fallbackWarning?: string;
 }
 
 export interface Conversation {

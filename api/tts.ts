@@ -1,10 +1,14 @@
 import { EdgeTTS } from '@andresaya/edge-tts';
+import { checkAuthAndRateLimit } from './_security';
 
 export const config = {
-  runtime: 'nodejs',
+  runtime: 'edge',
 };
 
 export default async function handler(req: Request) {
+  const securityResponse = checkAuthAndRateLimit(req);
+  if (securityResponse) return securityResponse;
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Método não permitido.' }), {
       status: 405,

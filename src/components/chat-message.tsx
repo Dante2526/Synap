@@ -16,6 +16,8 @@ import {
   GitMerge,
   Layers,
   GitBranch,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { ThinkingOrb } from 'thinking-orbs';
 import { Message } from '../lib/types';
@@ -776,6 +778,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             </div>
           )}
 
+          {message.fallbackWarning && (
+            <div className="flex items-start gap-2.5 p-3 my-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[13px] font-semibold">Fallback Acionado</span>
+                <span className="text-xs opacity-80 leading-relaxed mt-0.5">{message.fallbackWarning}</span>
+              </div>
+            </div>
+          )}
+
           {/* Assistant Rendered Markdown */}
           <div className="w-full prose prose-invert max-w-none text-[15px] sm:text-[16px] text-[#f3efe6] leading-relaxed break-words font-sans">
             {displayContent ? (
@@ -923,6 +935,33 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               </button>
 
               <SpeakButton text={displayContent} />
+
+              {message.tokenUsage && (
+                <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#1e1c18] border border-[#312f2a] shadow-inner cursor-default group relative">
+                  <Zap className="w-3 h-3 text-[#d97757]" />
+                  <span className="text-[11px] font-medium text-[#c4bcaa]">
+                    {message.tokenUsage.totalTokens.toLocaleString()}
+                  </span>
+                  
+                  {/* Tooltip on hover */}
+                  <div className="absolute bottom-full right-0 mb-2 w-max p-2.5 rounded-xl bg-[#1e1c18] border border-[#3b3831] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 flex flex-col gap-1.5 translate-y-1 group-hover:translate-y-0">
+                    <div className="text-[10px] uppercase tracking-wider text-[#736e63] font-semibold mb-0.5">Consumo de Tokens</div>
+                    <div className="flex justify-between items-center gap-4 text-xs">
+                      <span className="text-[#9c9589]">Prompt</span>
+                      <span className="text-[#f3efe6] font-mono">{message.tokenUsage.promptTokens.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-4 text-xs">
+                      <span className="text-[#9c9589]">Resposta</span>
+                      <span className="text-[#f3efe6] font-mono">{message.tokenUsage.completionTokens.toLocaleString()}</span>
+                    </div>
+                    <div className="w-full h-px bg-[#312f2a] my-0.5" />
+                    <div className="flex justify-between items-center gap-4 text-xs font-medium">
+                      <span className="text-[#d97757]">Total</span>
+                      <span className="text-[#d97757] font-mono">{message.tokenUsage.totalTokens.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

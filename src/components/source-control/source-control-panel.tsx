@@ -396,7 +396,7 @@ export const SourceControlPanel: React.FC<SourceControlPanelProps> = ({
           {activeTab === 'changes' && (
             <div className="flex-1 flex flex-col">
               {/* Commit Message Box */}
-              <div className="p-3 border-b border-[#2d2a25] space-y-2 bg-[#1b1a17]">
+              <div className="p-3 border-b border-[#2d2a25] space-y-2 bg-[#111217]">
                 <div className="relative">
                   <textarea
                     value={commitMessage}

@@ -34,6 +34,7 @@ import { fetchFileContent, fetchRepoContents, searchCode } from './lib/github';
 import { TerminalPanel, TerminalEntry } from './components/terminal-panel';
 import { executeEmulatedCommand } from './lib/git-terminal-emulator';
 import { commitStagedChanges } from './lib/github-commit';
+import { StudioPanel } from './studio/studio-panel';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -235,6 +236,7 @@ function AppContent() {
   // GitHub & Source Control state
   const [sidebarTab, setSidebarTab] = useState<'chats' | 'repos' | 'source-control'>('chats');
   const [activeRepo, setActiveRepo] = useState<ActiveRepoState | null>(null);
+  const [isStudioMode, setIsStudioMode] = useState<boolean>(false);
 
   const [diffViewingChange, setDiffViewingChange] = useState<PendingChange | null>(null);
   const [toastNotification, setToastNotification] = useState<{
@@ -287,7 +289,7 @@ function AppContent() {
 
   // Check backend server status
   useEffect(() => {
-    fetch('/api/status')
+    fetch('/api/status', { headers: { 'x-api-key': import.meta.env.VITE_API_SECRET || '' } })
       .then((res) => res.json())
       .then((data) => {
         setHasApiKey(Boolean(data.hasApiKey));
@@ -578,7 +580,9 @@ function AppContent() {
     if (name === 'web_search' || name === 'search_web') {
       try {
         const query = args.query || args.q || '';
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+          headers: { 'x-api-key': import.meta.env.VITE_API_SECRET || '' }
+        });
         if (!res.ok) throw new Error(`Falha na busca web (${res.status})`);
         const searchResults = await res.json();
         return { result: JSON.stringify(searchResults) };
@@ -593,7 +597,10 @@ function AppContent() {
         const aspect_ratio = args.aspect_ratio || '1:1';
         const res = await fetch('/api/image', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': import.meta.env.VITE_API_SECRET || '',
+          },
           body: JSON.stringify({ prompt, aspect_ratio }),
         });
         if (!res.ok) throw new Error(`Falha ao gerar imagem (${res.status})`);
@@ -1110,6 +1117,7 @@ function AppContent() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-api-key': import.meta.env.VITE_API_SECRET || ''
           },
           body: JSON.stringify({
             messages: currentMessagesForApi,
@@ -1133,12 +1141,23 @@ function AppContent() {
           throw new Error('Nenhuma resposta retornada pelo servidor.');
         }
 
+        const fallbackType = response.headers.get('x-fallback');
+        let fallbackWarning: string | undefined = undefined;
+        if (fallbackType === 'no-reasoning') {
+          fallbackWarning = 'O modelo negou o uso de raciocínio profundo para esta requisição (downgrade).';
+        } else if (fallbackType === 'no-tools') {
+          fallbackWarning = 'O modelo negou o uso de ferramentas nativas nesta requisição (downgrade).';
+        } else if (fallbackType === 'no-reasoning-and-tools') {
+          fallbackWarning = 'O modelo recusou raciocínio profundo e ferramentas (downgrade).';
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let iterationText = '';
         let iterationReasoning = '';
         let buffer = '';
         const toolCallsAccumulator: Record<number, { id: string; name: string; arguments: string }> = {};
+        let iterationTokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined = undefined;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1161,6 +1180,14 @@ function AppContent() {
               const parsed = JSON.parse(dataStr);
               const choice = parsed.choices?.[0];
               const delta = choice?.delta || choice?.message;
+
+              if (parsed.usage) {
+                iterationTokenUsage = {
+                  promptTokens: parsed.usage.prompt_tokens || 0,
+                  completionTokens: parsed.usage.completion_tokens || 0,
+                  totalTokens: parsed.usage.total_tokens || 0,
+                };
+              }
 
               if (delta) {
                 if (delta.reasoning_content) {
@@ -1222,6 +1249,8 @@ function AppContent() {
                               reasoning: currentCombinedReasoning || undefined,
                               editedFiles: allEditedFiles.length > 0 ? allEditedFiles : undefined,
                               toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+                              tokenUsage: iterationTokenUsage,
+                              fallbackWarning,
                             }
                           : m
                       ),
@@ -1395,7 +1424,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-[#1b1a17] text-[#f3efe6] overflow-hidden font-sans">
+    <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-[#111217] text-[#f3efe6] overflow-hidden font-sans">
       {/* Offline Alert Bar */}
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-[#8c4a2f] text-white text-xs py-1.5 px-4 flex items-center justify-center gap-2 shadow-md">
@@ -1446,7 +1475,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-[#1b1a17]">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-[#111217]">
         {/* Header */}
         <ChatHeader
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1466,6 +1495,8 @@ function AppContent() {
           onCloseRepo={handleCloseRepo}
           onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
           isTerminalOpen={isTerminalOpen}
+          isStudioMode={isStudioMode}
+          onToggleStudioMode={setIsStudioMode}
         />
 
         {/* Global Error Banner */}
@@ -1484,10 +1515,14 @@ function AppContent() {
           </div>
         )}
 
-        {/* Messages or Empty State */}
-        <div
-          ref={messagesContainerRef}
-          onScroll={handleMessagesScroll}
+        {isStudioMode ? (
+          <StudioPanel activeRepo={activeRepo} />
+        ) : (
+          <>
+            {/* Messages or Empty State */}
+            <div
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
           className="flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [overflow-anchor:none]"
         >
           {!activeConversation || activeConversation.messages.length === 0 ? (
@@ -1537,6 +1572,8 @@ function AppContent() {
           isPlanMode={isPlanMode}
           onTogglePlanMode={handleTogglePlanMode}
         />
+          </>
+        )}
 
         {/* Terminal Drawer Panel (Hardware-accelerated smooth slide drawer) */}
         <TerminalPanel

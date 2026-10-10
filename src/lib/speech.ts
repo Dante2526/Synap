@@ -125,6 +125,7 @@ export async function playNeuralSpeech(
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'audio/mpeg, audio/wav, application/json',
+        'x-api-key': import.meta.env.VITE_API_SECRET || '',
       },
       body: JSON.stringify({
         text: cleaned,

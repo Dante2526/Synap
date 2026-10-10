@@ -20,8 +20,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// Enable JSON body parsing with high limit for base64 images
-app.use(express.json({ limit: '30mb' }));
+// Enable raw body parsing to avoid double JSON serialization in adapter
+app.use(express.raw({ type: '*/*', limit: '30mb' }));
 
 /**
  * Adapter that converts Express (req, res) to Web Standard (Request -> Response).
@@ -37,6 +37,9 @@ function adaptWebHandler(handler: (req: Request) => Promise<Response>) {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
         if (value === undefined) continue;
+        const lowerKey = key.toLowerCase();
+        if (lowerKey === 'content-length' || lowerKey === 'host' || lowerKey === 'connection') continue;
+
         if (Array.isArray(value)) {
           for (const v of value) headers.append(key, v);
         } else {
@@ -45,13 +48,17 @@ function adaptWebHandler(handler: (req: Request) => Promise<Response>) {
       }
 
       const method = req.method.toUpperCase();
+      const controller = new AbortController();
       const init: RequestInit = {
         method,
         headers,
+        signal: controller.signal,
       };
 
       if (method !== 'GET' && method !== 'HEAD') {
-        if (req.body && typeof req.body === 'object') {
+        if (Buffer.isBuffer(req.body)) {
+          init.body = req.body as unknown as BodyInit;
+        } else if (req.body && typeof req.body === 'object') {
           init.body = JSON.stringify(req.body);
         } else if (typeof req.body === 'string') {
           init.body = req.body;
@@ -74,14 +81,19 @@ function adaptWebHandler(handler: (req: Request) => Promise<Response>) {
       }
 
       const reader = webRes.body.getReader();
-      req.on('close', () => {
-        reader.cancel().catch(() => {});
+      res.on('close', () => {
+        if (!res.writableEnded) {
+          controller.abort();
+          reader.cancel().catch(() => {});
+        }
       });
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        res.write(value);
+        if (!res.write(value)) {
+          await new Promise((resolve) => res.once('drain', resolve));
+        }
       }
       res.end();
     } catch (err: any) {
@@ -103,6 +115,11 @@ app.all('/api/github', adaptWebHandler(githubHandler));
 app.all('/api/search', adaptWebHandler(searchHandler));
 app.all('/api/image', adaptWebHandler(imageHandler));
 
+// Fallback explícito para rotas de API inexistentes (evita retornar HTML do SPA)
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'Endpoint da API não encontrado' });
+});
+
 // Setup Vite middleware in dev or serve static files in production
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -116,8 +133,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    
+    // SPA Fallback usando app.use para evitar problemas com Express 5 wildcard (* ou /{*splat})
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && req.accepts('html')) {
+        res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      } else {
+        next();
+      }
     });
   }
 

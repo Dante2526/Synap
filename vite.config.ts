@@ -4,42 +4,9 @@ import path from 'path';
 import fs from 'fs';
 import {defineConfig} from 'vite';
 
-function cssFallbackPlugin() {
-  return {
-    name: 'css-fallback-plugin',
-    enforce: 'pre' as const,
-    resolveId(id: string) {
-      if (id === './index.css' || id === '/src/index.css' || id.endsWith('index.css')) {
-        const root = import.meta.dirname || '.';
-        const candidates = [
-          path.resolve(root, 'src/index.css'),
-          path.resolve(root, 'index.css'),
-          path.resolve(root, 'src/index.css.txt'),
-          path.resolve(root, 'index.css.txt'),
-          path.resolve(root, 'src/globals.css'),
-          path.resolve(root, 'src/style.css'),
-        ];
-        for (const cand of candidates) {
-          if (fs.existsSync(cand)) {
-            return cand;
-          }
-        }
-        return '\0virtual-index.css';
-      }
-      return null;
-    },
-    load(id: string) {
-      if (id === '\0virtual-index.css') {
-        return '@import "tailwindcss";';
-      }
-      return null;
-    },
-  };
-}
-
 export default defineConfig(() => {
   return {
-    plugins: [cssFallbackPlugin(), tailwindcss(), react()],
+    plugins: [tailwindcss(), react()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname || '.', '.'),
@@ -65,14 +32,15 @@ export default defineConfig(() => {
             }
             if (
               id.includes('node_modules/react-markdown/') ||
-              id.includes('node_modules/remark-gfm/') ||
+              id.includes('node_modules/remark-') ||
+              id.includes('node_modules/mdast-') ||
+              id.includes('node_modules/hast-') ||
+              id.includes('node_modules/vfile') ||
+              id.includes('node_modules/unist-') ||
               id.includes('node_modules/micromark') ||
               id.includes('node_modules/unified')
             ) {
               return 'vendor-markdown';
-            }
-            if (id.includes('node_modules/react-diff-viewer-continued/')) {
-              return 'vendor-diff';
             }
             if (id.includes('node_modules/motion/')) {
               return 'vendor-motion';

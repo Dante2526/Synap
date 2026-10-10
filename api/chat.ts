@@ -1,8 +1,13 @@
+import { checkAuthAndRateLimit, ALLOWED_MODELS } from './_security';
+
 export const config = {
   runtime: 'edge',
 };
 
 export default async function handler(req: Request) {
+  const securityResponse = checkAuthAndRateLimit(req);
+  if (securityResponse) return securityResponse;
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Método não permitido.' }), {
       status: 405,
@@ -25,7 +30,8 @@ export default async function handler(req: Request) {
 
   try {
     const body = await req.json();
-    const { messages, model, reasoning_effort, tools } = body;
+    let { messages } = body;
+    const { model, reasoning_effort, tools } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Nenhuma mensagem informada.' }), {
@@ -34,7 +40,20 @@ export default async function handler(req: Request) {
       });
     }
 
+    if (messages.length > 40) {
+      // Retém o system prompt (se for o primeiro) + as últimas 39 mensagens
+      const sys = messages[0]?.role === 'system' ? [messages[0]] : [];
+      messages = [...sys, ...messages.slice(-39)];
+    }
+
     const selectedModel = model || 'z-ai/glm-5.3';
+    if (!ALLOWED_MODELS.includes(selectedModel)) {
+      return new Response(JSON.stringify({ error: 'Modelo não autorizado.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const selectedEffort = reasoning_effort || 'low';
 
     // Verify multimodal support
@@ -50,8 +69,16 @@ export default async function handler(req: Request) {
       );
     }
 
+    let lastUserMsgIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMsgIndex = i;
+        break;
+      }
+    }
+
     // Format messages for OpenAI standard, supporting tools & tool results
-    const formattedMessages = messages.map((m: any) => {
+    const formattedMessages = messages.map((m: any, index: number) => {
       if (m.role === 'tool') {
         return {
           role: 'tool',
@@ -67,16 +94,23 @@ export default async function handler(req: Request) {
         };
       }
       if (m.role === 'user' && m.images && Array.isArray(m.images) && m.images.length > 0) {
-        return {
-          role: 'user',
-          content: [
-            { type: 'text', text: m.content || '' },
-            ...m.images.map((img: string) => ({
-              type: 'image_url',
-              image_url: { url: img },
-            })),
-          ],
-        };
+        if (index === lastUserMsgIndex) {
+          return {
+            role: 'user',
+            content: [
+              { type: 'text', text: m.content || '' },
+              ...m.images.map((img: string) => ({
+                type: 'image_url',
+                image_url: { url: img },
+              })),
+            ],
+          };
+        } else {
+          return {
+            role: 'user',
+            content: `${m.content || ''}\n[Nota do Sistema: ${m.images.length} imagem(ns) enviada(s) omitida(s) do histórico para economizar tokens]`,
+          };
+        }
       }
       return {
         role: m.role,
@@ -89,6 +123,8 @@ export default async function handler(req: Request) {
         model: selectedModel,
         messages: formattedMessages,
         stream: true,
+        stream_options: { include_usage: true },
+        max_tokens: 8192, // Limite rígido (GLM-5.3 suporta mais, mas previne drenagem excessiva)
       };
       if (includeReasoning && selectedEffort && selectedEffort !== 'none' && selectedEffort !== 'default') {
         p.reasoning_effort = selectedEffort;
@@ -109,10 +145,14 @@ export default async function handler(req: Request) {
         Authorization: `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify(payload),
+      signal: req.signal,
     });
 
-    // Fallback 1: se der erro e reasoning_effort estava incluído, tenta sem reasoning_effort
-    if (!nvidiaRes.ok && payload.reasoning_effort) {
+    let fallbackType = 'none';
+
+    // Fallback 1: se der erro de validação/formato e reasoning_effort estava incluído
+    if (!nvidiaRes.ok && (nvidiaRes.status === 400 || nvidiaRes.status === 422) && payload.reasoning_effort) {
+      await nvidiaRes.body?.cancel().catch(() => {});
       payload = createPayload(false, true);
       nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
@@ -121,11 +161,14 @@ export default async function handler(req: Request) {
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(payload),
+        signal: req.signal,
       });
+      fallbackType = 'no-reasoning';
     }
 
-    // Fallback 2: se der erro com ferramentas, tenta sem ferramentas
-    if (!nvidiaRes.ok && payload.tools) {
+    // Fallback 2: se der erro e as ferramentas estavam sendo usadas
+    if (!nvidiaRes.ok && (nvidiaRes.status === 400 || nvidiaRes.status === 422) && payload.tools) {
+      await nvidiaRes.body?.cancel().catch(() => {});
       payload = createPayload(false, false);
       nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
@@ -134,7 +177,9 @@ export default async function handler(req: Request) {
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify(payload),
+        signal: req.signal,
       });
+      fallbackType = fallbackType === 'no-reasoning' ? 'no-reasoning-and-tools' : 'no-tools';
     }
 
     if (!nvidiaRes.ok) {
@@ -163,14 +208,18 @@ export default async function handler(req: Request) {
       });
     }
 
-    return new Response(nvidiaRes.body, {
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    };
+
+    if (fallbackType !== 'none') {
+      headers['x-fallback'] = fallbackType;
+    }
+
+    return new Response(nvidiaRes.body, { headers });
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error?.message || 'Erro ao processar mensagem.' }), {
       status: 500,

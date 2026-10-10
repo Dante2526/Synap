@@ -19,8 +19,10 @@ import {
   Loader2,
   LogOut,
 } from 'lucide-react';
-import { AppSettings, Conversation } from '../lib/types';
+import { AppSettings, Conversation, ModelId, ReasoningEffort } from '../lib/types';
 import { exportConversationsToJSON } from '../lib/storage';
+import { loadStudioConfig, saveStudioConfig } from '../lib/studio-config';
+import { StudioAgent } from '../studio/studio-types';
 import { NEURAL_VOICES } from '../lib/speech';
 import { ClaudeLogo } from './claude-logo';
 import {
@@ -65,9 +67,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [githubError, setGithubError] = useState<string | null>(null);
   const [githubSuccess, setGithubSuccess] = useState(false);
 
+  // Studio config state
+  const [studioConfig, setStudioConfig] = useState<{ planner: StudioAgent; reviewer: StudioAgent; implementer: StudioAgent } | null>(null);
+
   // Load existing PAT on mount/open or check server environment variable
   useEffect(() => {
     if (isOpen) {
+      loadStudioConfig().then(setStudioConfig);
       const savedPat = getGitHubPat();
       if (savedPat) {
         setGithubPatInput(savedPat);
@@ -111,6 +117,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } finally {
       setIsValidatingGithub(false);
     }
+  };
+
+  const handleUpdateStudioAgent = (role: 'planner' | 'reviewer' | 'implementer', updates: Partial<StudioAgent>) => {
+    if (!studioConfig) return;
+    const newConfig = {
+      ...studioConfig,
+      [role]: { ...studioConfig[role], ...updates }
+    };
+    setStudioConfig(newConfig);
+    saveStudioConfig(newConfig);
   };
 
   const handleDisconnectGithub = () => {
@@ -445,6 +461,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Studio Configuration Card */}
+          {studioConfig && (
+            <div className="rounded-xl bg-[#1d1b18] border border-[#312f2a] p-4 space-y-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-7 h-7 rounded-lg bg-[#2b2722] flex items-center justify-center text-amber-400">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm font-medium text-[#f3efe6]">Synap Studio ✨</div>
+                  <div className="text-[10px] text-[#8c867a]">Configure a inteligência de cada agente</div>
+                </div>
+              </div>
+
+              {(['planner', 'reviewer', 'implementer'] as const).map(role => (
+                <div key={role} className="border-t border-[#2d2a25] pt-3 flex flex-col gap-2">
+                  <div className="text-xs font-semibold capitalize text-[#c4bfb6]">{role === 'planner' ? 'Planejador' : role === 'reviewer' ? 'Revisor' : 'Implementador'}</div>
+                  <div className="flex gap-2">
+                    <select
+                      value={studioConfig[role].model}
+                      onChange={(e) => handleUpdateStudioAgent(role, { model: e.target.value as ModelId })}
+                      className="flex-1 bg-[#181614] border border-[#2b2924] rounded-lg px-2 py-1.5 text-xs text-[#a39d93] focus:border-[#d97757] focus:outline-none"
+                    >
+                      <option value="z-ai/glm-5.3">GLM-5.3 (Completo)</option>
+                      <option value="z-ai/glm-5.3-flash">GLM-5.3-Flash (Rápido)</option>
+                      <option value="moonshotai/kimi-k3">Kimi K3 (Longo Contexto)</option>
+                    </select>
+                    <select
+                      value={studioConfig[role].reasoningEffort}
+                      onChange={(e) => handleUpdateStudioAgent(role, { reasoningEffort: e.target.value as ReasoningEffort })}
+                      className="w-24 bg-[#181614] border border-[#2b2924] rounded-lg px-2 py-1.5 text-xs text-[#a39d93] focus:border-[#d97757] focus:outline-none"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Action buttons */}
           <div className="pt-2 space-y-2">
             {/* Export JSON */}
@@ -525,7 +583,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-[#312f2a] bg-[#1b1a17] text-[10px] text-[#736e65] text-center">
+        <div className="px-5 py-3 border-t border-[#312f2a] bg-[#111217] text-[10px] text-[#736e65] text-center">
           Synap • Claude Design System • NVIDIA NIM
         </div>
       </div>

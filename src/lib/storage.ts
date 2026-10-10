@@ -1,5 +1,8 @@
 import { get, set, clear } from 'idb-keyval';
 import { Conversation, AppSettings } from './types';
+import { StudioSession } from '../studio/studio-types';
+
+const STUDIO_SESSIONS_KEY = 'synap_studio_sessions';
 
 const CONVERSATIONS_KEY = 'nim_chat_conversations_v1';
 const SETTINGS_KEY = 'nim_chat_settings_v1';
@@ -35,6 +38,24 @@ export async function clearAllConversations(): Promise<void> {
     await clear();
   } catch (error) {
     console.error('Failed to clear conversations:', error);
+  }
+}
+
+export async function loadStudioSessions(): Promise<StudioSession[]> {
+  try {
+    const data = await get<StudioSession[]>(STUDIO_SESSIONS_KEY);
+    return data || [];
+  } catch (error) {
+    console.error('Failed to load studio sessions', error);
+    return [];
+  }
+}
+
+export async function saveStudioSessions(sessions: StudioSession[]): Promise<void> {
+  try {
+    await set(STUDIO_SESSIONS_KEY, sessions);
+  } catch (error) {
+    console.error('Failed to save studio sessions', error);
   }
 }
 

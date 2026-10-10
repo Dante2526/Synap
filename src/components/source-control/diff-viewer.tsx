@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
+import React, { useState, Suspense } from 'react';
 import { X, Check, Undo2, Edit3, Save, FileCode, Plus, Minus } from 'lucide-react';
+
+const ReactDiffViewer = React.lazy(() => import('react-diff-viewer-continued'));
 import { PendingChange } from '../../lib/types';
 
 interface DiffViewerProps {
@@ -204,16 +205,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </div>
           ) : (
             <div className="p-2 sm:p-4">
-              <ReactDiffViewer
-                oldValue={change.originalContent || ''}
-                newValue={change.newContent}
-                splitView={isDesktop}
-                useDarkTheme={true}
-                styles={customStyles}
-                compareMethod={DiffMethod.WORDS}
-                leftTitle="Original (GitHub Branch)"
-                rightTitle="Modificado pela IA (Pendente)"
-              />
+              <Suspense fallback={<div className="p-4 text-sm font-mono text-[#8c867a]">Carregando visualizador de diff...</div>}>
+                <ReactDiffViewer
+                  oldValue={change.originalContent || ''}
+                  newValue={change.newContent}
+                  splitView={isDesktop}
+                  useDarkTheme={true}
+                  styles={customStyles}
+                  compareMethod={"diffWords" as any}
+                  leftTitle="Original (GitHub Branch)"
+                  rightTitle="Modificado pela IA (Pendente)"
+                />
+              </Suspense>
             </div>
           )}
         </div>

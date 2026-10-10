@@ -91,6 +91,7 @@ export const SpeakButton: React.FC<SpeakButtonProps> = ({ text }) => {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'audio/mpeg, audio/wav, application/json',
+          'x-api-key': import.meta.env.VITE_API_SECRET || '',
         },
         body: JSON.stringify({
           text: clean,

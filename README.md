@@ -1,6 +1,6 @@
 # Synap — AI Chat (NVIDIA NIM & GLM)
 
-App web de chat com IA estilo ChatGPT, conectado à API da NVIDIA NIM (endpoint OpenAI-compatible), com suporte a modelos GLM-5.3 e GLM-5.3-Flash, controle completo de `reasoning_effort`, visão multimodal (imagens), voz nativa (STT e TTS) e histórico offline salvo no IndexedDB.
+App web de chat com IA estilo ChatGPT, conectado à API da NVIDIA NIM (endpoint OpenAI-compatible), com suporte a modelos GLM-5.3, GLM-5.3-Flash e Moonshot Kimi K3, controle completo de `reasoning_effort`, visão multimodal (imagens), voz nativa (STT e TTS) e histórico offline salvo no IndexedDB.
 
 ---
 
@@ -105,6 +105,7 @@ Durante o processo, informe as variáveis `NVIDIA_API_KEY` e `GEMINI_API_KEY`.
 4. **Modelos Suportados**:
    - `GLM-5.3 (Pensar)` (`z-ai/glm-5.3`): Modo texto focado em raciocínio analítico.
    - `GLM-5.3-Flash (Rápido + Visão)` (`z-ai/glm-5.3-flash`): Multimodal com suporte a upload de imagens.
+   - `Kimi K3 (Visão Expandida)` (`moonshotai/kimi-k3`): O modelo da Moonshot AI com capacidades robustas de visão multimodal.
 
 5. **Visão Multimodal**:
    - Upload de imagens (PNG, JPG, WebP, GIF até 5MB).

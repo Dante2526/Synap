@@ -114,7 +114,7 @@ export const RepoList: React.FC<RepoListProps> = ({
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Search box */}
-          <div className="p-3 border-b border-[#2d2a25] bg-[#1b1a17]">
+          <div className="p-3 border-b border-[#2d2a25] bg-[#111217]">
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-[#736e65] absolute left-3 top-2.5" />
               <input

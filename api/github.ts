@@ -1,7 +1,7 @@
-import { Octokit } from 'octokit';
+import { Octokit } from '@octokit/rest';
 
 export const config = {
-  runtime: 'nodejs',
+  runtime: 'edge',
 };
 
 function getEffectiveToken(req: Request): string | null {
@@ -21,7 +21,12 @@ function getEffectiveToken(req: Request): string | null {
   return null;
 }
 
+import { checkAuthAndRateLimit } from './_security';
+
 export default async function handler(req: Request): Promise<Response> {
+  const securityResponse = checkAuthAndRateLimit(req);
+  if (securityResponse) return securityResponse;
+
   const token = getEffectiveToken(req);
 
   if (!token) {
@@ -62,9 +67,8 @@ export default async function handler(req: Request): Promise<Response> {
 
     // 2. Listar repositórios do usuário
     if (action === 'repos') {
-      const { data } = await octokit.rest.repos.listForAuthenticatedUser({
+      const data = await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
         sort: 'updated',
-        per_page: 100,
         direction: 'desc',
       });
 
@@ -102,10 +106,9 @@ export default async function handler(req: Request): Promise<Response> {
         });
       }
 
-      const { data } = await octokit.rest.repos.listBranches({
+      const data = await octokit.paginate(octokit.rest.repos.listBranches, {
         owner,
         repo,
-        per_page: 50,
       });
 
       return new Response(JSON.stringify(data.map((b) => b.name)), {
@@ -176,16 +179,46 @@ export default async function handler(req: Request): Promise<Response> {
         ref: branch,
       });
 
-      if (!Array.isArray(data) && 'content' in data && data.content) {
-        const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
-        return new Response(JSON.stringify({ content: decoded }), {
+      if (!Array.isArray(data) && 'type' in data && data.type === 'file') {
+        let base64Content = data.content || '';
+
+        // Se o arquivo for maior que ~1MB, o GitHub retorna content vazio. Buscamos pelo Blob.
+        if (data.size > 1000000 || !base64Content) {
+          try {
+            const blob = await octokit.rest.git.getBlob({
+              owner,
+              repo,
+              file_sha: data.sha,
+            });
+            base64Content = blob.data.content;
+          } catch (blobErr: any) {
+            return new Response(
+              JSON.stringify({ error: `Falha ao ler arquivo grande (>1MB): ${blobErr.message}` }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+
+        const buf = Buffer.from(base64Content, 'base64');
+
+        // Checar se o conteúdo é um binário diretamente no buffer (antes de tentar decodificar utf-8)
+        if (buf.includes(0)) {
+          return new Response(
+            JSON.stringify({ error: 'Arquivo binário. Não pode ser exibido ou editado como texto.' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const decoded = buf.toString('utf-8');
+
+        return new Response(JSON.stringify({ content: decoded, sha: data.sha }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      return new Response(JSON.stringify({ content: '' }), {
-        status: 200,
+      return new Response(JSON.stringify({ error: 'Caminho não é um arquivo suportado.' }), {
+        status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -281,73 +314,93 @@ export default async function handler(req: Request): Promise<Response> {
         ref: `heads/${branch}`,
       });
 
-      // Árvore do commit base
+      // Árvore do commit base com recursão para pegar SHA original e manter mode (+x)
       const { data: lastCommit } = await octokit.rest.git.getCommit({
         owner,
         repo,
         commit_sha: ref.object.sha,
       });
 
-      const treeItems: any[] = [];
-      for (const change of changes) {
-        if (change.type === 'deleted') {
-          treeItems.push({
-            path: change.path,
-            mode: '100644',
-            type: 'blob',
-            sha: null,
-          });
-        } else {
-          const { data: blob } = await octokit.rest.git.createBlob({
-            owner,
-            repo,
-            content: change.newContent || '',
-            encoding: 'utf-8',
-          });
-          treeItems.push({
-            path: change.path,
-            mode: '100644',
-            type: 'blob',
-            sha: blob.sha,
-          });
-        }
-      }
-
-      // Nova árvore
-      const { data: newTree } = await octokit.rest.git.createTree({
+      const { data: treeData } = await octokit.rest.git.getTree({
         owner,
         repo,
-        base_tree: lastCommit.tree.sha,
-        tree: treeItems,
+        tree_sha: lastCommit.tree.sha,
+        recursive: 'true',
       });
+      const currentItems = treeData.tree;
 
-      // Novo commit
-      const { data: newCommit } = await octokit.rest.git.createCommit({
-        owner,
-        repo,
-        message,
-        tree: newTree.sha,
-        parents: [ref.object.sha],
-      });
+      try {
+        const treeItems = await Promise.all(
+          changes.map(async (change) => {
+            const existingItem = currentItems.find((i) => i.path === change.path);
 
-      // Atualizar branch ref
-      await octokit.rest.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-        sha: newCommit.sha,
-      });
+            // Proteção contra Lost Update
+            if (change.type !== 'added' && change.baseSha && existingItem) {
+              if (existingItem.sha !== change.baseSha) {
+                throw {
+                  status: 409,
+                  message: `Conflito de edição: O arquivo ${change.path} foi modificado no GitHub depois que você abriu. Recarregue o arquivo.`,
+                };
+              }
+            }
 
-      return new Response(
-        JSON.stringify({
+            const mode = (existingItem?.mode || '100644') as any;
+
+            if (change.type === 'deleted') {
+              return { path: change.path, mode: '100644' as any, type: 'blob' as const, sha: null };
+            } else {
+              const { data: blob } = await octokit.rest.git.createBlob({
+                owner,
+                repo,
+                content: change.newContent || '',
+                encoding: 'utf-8',
+              });
+              return { path: change.path, mode, type: 'blob' as const, sha: blob.sha };
+            }
+          })
+        );
+
+        // Nova árvore
+        const { data: newTree } = await octokit.rest.git.createTree({
+          owner,
+          repo,
+          base_tree: lastCommit.tree.sha,
+          tree: treeItems,
+        });
+
+        // Novo commit
+        const { data: newCommit } = await octokit.rest.git.createCommit({
+          owner,
+          repo,
+          message,
+          tree: newTree.sha,
+          parents: [ref.object.sha],
+        });
+
+        // Atualizar branch ref
+        await octokit.rest.git.updateRef({
+          owner,
+          repo,
+          ref: `heads/${branch}`,
           sha: newCommit.sha,
-          html_url: `https://github.com/${owner}/${repo}/commit/${newCommit.sha}`,
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
+        });
+
+        return new Response(
+          JSON.stringify({
+            sha: newCommit.sha,
+            html_url: `https://github.com/${owner}/${repo}/commit/${newCommit.sha}`,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      } catch (err: any) {
+        if (err.status === 409) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
-      );
+        throw err;
+      }
     }
 
     // 8. Criar nova branch direto pela UI (a partir de uma branch existente)
@@ -374,15 +427,17 @@ export default async function handler(req: Request): Promise<Response> {
         });
         baseSha = ref.object.sha;
       } catch (refErr: any) {
-        if (baseBranch === 'main') {
+        if (baseBranch === 'main' && refErr.status === 404) {
           const { data: refMaster } = await octokit.rest.git.getRef({
             owner,
             repo,
             ref: 'heads/master',
           });
           baseSha = refMaster.object.sha;
-        } else {
+        } else if (refErr.status === 404) {
           throw new Error(`Branch base '${baseBranch}' não encontrada no repositório.`);
+        } else {
+          throw refErr; // Repassa erros reais de autenticação ou rate limit
         }
       }
 

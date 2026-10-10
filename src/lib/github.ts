@@ -21,7 +21,7 @@ export function removeGitHubPat(): void {
  * Lazy loads Octokit dynamically on demand to prevent bloating the main bundle.
  */
 export async function getLazyOctokit(customPat?: string) {
-  const { Octokit } = await import('octokit');
+  const { Octokit } = await import('@octokit/rest');
   const token = customPat || getGitHubPat();
   if (!token) return null;
   return new Octokit({ auth: token });
@@ -53,6 +53,7 @@ export async function callGitHubApi<T>(
   const searchParams = new URLSearchParams({ action, ...params });
   const headers: Record<string, string> = {
     ...getClientAuthHeaders(customPat),
+    'x-api-key': import.meta.env.VITE_API_SECRET || '',
   };
 
   if (body) {

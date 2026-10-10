@@ -15,6 +15,8 @@ interface ChatHeaderProps {
   onCloseRepo?: () => void;
   onToggleTerminal?: () => void;
   isTerminalOpen?: boolean;
+  isStudioMode?: boolean;
+  onToggleStudioMode?: (isStudio: boolean) => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
@@ -29,9 +31,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   onCloseRepo,
   onToggleTerminal,
   isTerminalOpen = false,
+  isStudioMode = false,
+  onToggleStudioMode,
 }) => {
   return (
-    <header className="h-13 sm:h-14 border-b border-[#2d2b26] bg-[#1b1a17]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between sticky top-0 z-30 select-none max-w-full overflow-hidden">
+    <header className="h-13 sm:h-14 border-b border-[#2d2b26] bg-[#111217]/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between sticky top-0 z-30 select-none max-w-full overflow-hidden">
       {/* Left side: Claude sidebar toggle & New chat */}
       <div className="flex items-center gap-1.5 sm:gap-2">
         <button
@@ -126,6 +130,23 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
                 <span>Vincular Repo</span>
               </button>
             )}
+          </div>
+        )}
+
+        {onToggleStudioMode && (
+          <div className="hidden md:flex ml-4 bg-[#181714] border border-[#2d2b26] rounded-lg p-0.5">
+            <button
+              onClick={() => onToggleStudioMode(false)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${!isStudioMode ? 'bg-[#2d2b26] text-[#f3efe6] shadow-sm' : 'text-[#8c867a] hover:text-[#c4bfb6]'}`}
+            >
+              💬 Chat
+            </button>
+            <button
+              onClick={() => onToggleStudioMode(true)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${isStudioMode ? 'bg-[#2d2b26] text-amber-400 shadow-sm' : 'text-[#8c867a] hover:text-amber-400/80'}`}
+            >
+              ✨ Studio
+            </button>
           </div>
         )}
       </div>
