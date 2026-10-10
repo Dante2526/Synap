@@ -1,4 +1,4 @@
-import { checkAuthAndRateLimit } from './_security.ts';
+import { checkAuthAndRateLimit } from '../lib/server/_security';
 
 export const config = {
   runtime: 'nodejs',

@@ -9,7 +9,7 @@ interface SearchResult {
   link: string;
 }
 
-import { checkAuthAndRateLimit } from './_security.ts';
+import { checkAuthAndRateLimit } from '../lib/server/_security';
 
 export default async function handler(req: Request): Promise<Response> {
   const securityResponse = checkAuthAndRateLimit(req);
