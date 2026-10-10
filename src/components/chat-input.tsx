@@ -101,7 +101,7 @@ export const ChatInput: React.FC<ChatInputProps> = React.memo(({
           newImages.push(base64);
 
           // Auto-switch to GLM-5.3-Flash for multimodal vision support if not already
-          const isVisionModel = selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'z-ai/kimi-k3';
+          const isVisionModel = selectedModel === 'z-ai/glm-5.3-flash' || selectedModel === 'moonshotai/kimi-k3';
           if (!isVisionModel) {
             onSelectModel('z-ai/glm-5.3-flash');
             switchedToFlash = true;
