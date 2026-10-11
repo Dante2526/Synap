@@ -26,18 +26,23 @@
   }
 }
 
-/* Claude.ai Warm Scrollbar */
+/* Barra de Rolagem (Scrollbar) no Modo Escuro */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #1E293B;
+}
+
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #1E293B;
 }
 ::-webkit-scrollbar-thumb {
-  background: #38352f;
+  background: #475569;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4d4941;
+  background: #64748B;
 }
