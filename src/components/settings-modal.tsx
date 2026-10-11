@@ -612,7 +612,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-[#312f2a] bg-[#111217] text-[10px] text-[#736e65] text-center">
+        <div className="px-5 py-3 border-t border-[#312f2a] bg-dark-bg text-[10px] text-[#736e65] text-center">
           Synap • Claude Design System • NVIDIA NIM
         </div>
       </div>

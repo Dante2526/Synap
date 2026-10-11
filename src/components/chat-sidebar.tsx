@@ -311,7 +311,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
                           autoFocus
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full bg-[#111217] border border-[#d97757] rounded-md px-2 py-0.5 text-xs text-white focus:outline-none"
+                          className="w-full bg-dark-bg border border-[#d97757] rounded-md px-2 py-0.5 text-xs text-white focus:outline-none"
                         />
                         <button
                           type="submit"

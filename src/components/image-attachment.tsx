@@ -48,7 +48,7 @@ export const FileAttachmentPreviews: React.FC<FileAttachmentPreviewsProps> = ({
               type="button"
               onClick={() => onRemoveImage(idx)}
               aria-label="Remover imagem"
-              className="absolute top-1 right-1 p-0.5 rounded-full bg-[#111217]/90 text-[#a39d93] hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
+              className="absolute top-1 right-1 p-0.5 rounded-full bg-dark-bg/90 text-[#a39d93] hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>

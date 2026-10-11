@@ -1759,7 +1759,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-[#111217] text-[#f3efe6] overflow-hidden font-sans">
+    <div className="flex h-screen h-[100dvh] max-h-[100dvh] w-full bg-dark-bg text-[#f3efe6] overflow-hidden font-sans">
       {/* Offline Alert Bar */}
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-[#8c4a2f] text-white text-xs py-1.5 px-4 flex items-center justify-center gap-2 shadow-md">
@@ -1820,7 +1820,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-[#111217]">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-dark-bg">
         {/* Header */}
         <ChatHeader
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
