@@ -64,4 +64,23 @@ Durante esta sessão massiva de engenharia, efetuamos uma varredura completa na 
   - Se atingir o teto de 45 rodadas, o sistema emite um alerta de segurança amigável.
   - **Evidências de Verificação:** `tsc --noEmit` com 0 erros e `vite build` verde em 1.66s.
 
-**Status atual da Aplicação:** Estável, ultra performática em Edge, com Context Compaction e Auto-Continuação ativa (até 45 rodadas), e deploy verde.
+## 11. Habilidades Modulares (Skills) e Conector Universal MCP
+- **Problema:** O Synap precisava expandir suas capacidades cognitivas com regras especializadas (TDD, Debugging sistemático, Code review e Performance) e integrar com ferramentas externas e bancos de dados através do padrão de mercado Model Context Protocol (MCP).
+- **Solução Implementada:**
+  - **Catálogo de Skills Nativas:** 4 habilidades padrão integradas com alternância rápida (toggle switch) e persistência IndexedDB:
+    1. *Test-Driven Development (TDD)*
+    2. *Systematic Debugging*
+    3. *Code Review & Segurança*
+    4. *Performance & Otimização de Código*
+  - **Criador de Skills Customizadas:** Modal interativo que permite aos desenvolvedores criar suas próprias personas, regras de projeto ou guidelines de arquitetura com persistência automática.
+  - **Conector Universal MCP:** Motor compatível com a especificação JSON-RPC 2.0 suportando transportes HTTP e Server-Sent Events (SSE), timeouts protegidos (15s para handshake e 20s para execução remota) e descoberta dinâmica de ferramentas (`tools/list`).
+  - **Namespacing Seguro de Ferramentas:** Ferramentas importadas de servidores remotos recebem o prefixo seguro `mcp__<serverId>__<toolName>`, prevenindo qualquer colisão com comandos nativos do terminal ou do GitHub.
+  - **Painel de Extensões na UI (`ExtensionsPanel`):** Integrado como uma nova aba principal na barra lateral (`[Chat] | [Repos] | [Git] | [Skills]`), exibindo status de conexão em tempo real (bolinhas pulsantes), contagem de ferramentas e modais de adição rápida.
+  - **Injeção Transparente no Chat:** System prompts de habilidades ativas são concatenados diretamente no fluxo do `prepareMessagesForApi`, e as ferramentas MCP descobertas são convertidas dinamicamente para o esquema OpenAI Function Calling e disponibilizadas para o modelo no `handleSendMessage`.
+  - **Evidências de Verificação:**
+    - Testes unitários do motor MCP: 3/3 passando (`src/lib/mcp-client.test.ts`).
+    - Testes unitários do compactador de contexto: 5/5 passando (`src/lib/context-compactor.test.ts`).
+    - Verificação de tipos estritos: `tsc --noEmit` com 0 erros.
+    - Build de produção do Vite compilado em 768ms com 0 erros.
+
+**Status atual da Aplicação:** Estável, pronta para produção, com Context Compaction, Auto-Continuação de 45 rodadas, Catálogo de Skills Modulares e Conector Universal MCP integrado.
