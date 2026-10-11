@@ -55,4 +55,13 @@ Durante esta sessão massiva de engenharia, efetuamos uma varredura completa na 
     - Validação de tipos estritos: `tsc --noEmit` com 0 erros.
     - Build de produção Vite verde em `dist/`.
 
-**Status atual da Aplicação:** Estável, ultra performática em Edge, com Context Compaction ativo, e build verde.
+## 10. Auto-Continuação de Ferramentas (Bypass de Limites)
+- **Problema:** A IA era cortada ao atingir 15 iterações de ferramentas consecutivas, interrompendo refatorações complexas que precisavam de mais passos.
+- **Solução Implementada:**
+  - O teto de ferramentas foi expandido para **45 rodadas automáticas contínuas** (`MAX_TOOL_ITERATIONS = 45`) em `src/App.tsx`.
+  - Como cada tool call é uma requisição HTTP independente e rápida (3 a 8s), o contador de timeout de 60s da Vercel é zerado a cada iteração, permitindo que a IA trabalhe continuamente por vários minutos sem cair em timeout.
+  - O usuário mantém controle total pelo botão de interrupção imediata (*Stop Generation*) a qualquer momento.
+  - Se atingir o teto de 45 rodadas, o sistema emite um alerta de segurança amigável.
+  - **Evidências de Verificação:** `tsc --noEmit` com 0 erros e `vite build` verde em 1.66s.
+
+**Status atual da Aplicação:** Estável, ultra performática em Edge, com Context Compaction e Auto-Continuação ativa (até 45 rodadas), e deploy verde.

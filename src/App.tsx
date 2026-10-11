@@ -1167,6 +1167,7 @@ function AppContent() {
     try {
       let currentMessagesForApi = [...contextMessages];
       let hasToolCallsToProcess = true;
+      const MAX_TOOL_ITERATIONS = 45;
       let loopCount = 0;
       const allEditedFiles: MessageEditedFile[] = [];
       const allToolCalls: MessageToolCall[] = [];
@@ -1174,7 +1175,7 @@ function AppContent() {
       let accumulatedAssistantText = '';
       let accumulatedReasoningText = '';
 
-      while (hasToolCallsToProcess && loopCount < 15) {
+      while (hasToolCallsToProcess && loopCount < MAX_TOOL_ITERATIONS) {
         loopCount++;
         hasToolCallsToProcess = false;
 
@@ -1525,8 +1526,8 @@ function AppContent() {
         }
       }
 
-      // Aviso se atingiu o limite de iterações (IA foi cortada no meio)
-      if (loopCount >= 15 && hasToolCallsToProcess) {
+      // Aviso se atingiu o limite de segurança de iterações (45 rodadas automáticas)
+      if (loopCount >= MAX_TOOL_ITERATIONS && hasToolCallsToProcess) {
         setConversations((prev) =>
           prev.map((c) => {
             if (c.id !== currentConvId) return c;
@@ -1538,7 +1539,7 @@ function AppContent() {
                       ...m,
                       content:
                         (m.content || '') +
-                        '\n\n---\n⚠️ **Aviso do Synap**: Atingi o limite de 15 rodadas de ferramentas nesta resposta. Se precisar que eu continue, mande uma mensagem pedindo pra continuar de onde parei.',
+                        '\n\n---\n⚠️ **Aviso de Segurança do Synap**: Atingi o limite máximo de 45 rodadas automáticas de ferramentas nesta resposta. Se ainda houver passos adicionais, envie uma mensagem para continuar.',
                     }
                   : m
               ),
