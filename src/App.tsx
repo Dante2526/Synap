@@ -49,6 +49,7 @@ import {
   testMcpConnection,
   executeMcpToolCall,
 } from './lib/mcp-client';
+import { ThemeMode, getInitialTheme, applyTheme } from './lib/theme';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -276,6 +277,13 @@ function AppContent() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
+
+  // Theme state (dark / light mode)
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   const [diffViewingChange, setDiffViewingChange] = useState<PendingChange | null>(null);
   const [toastNotification, setToastNotification] = useState<{
@@ -638,6 +646,10 @@ function AppContent() {
 
   const handleOpenTerminal = useCallback(() => {
     setIsTerminalOpen(true);
+  }, []);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
   const handleViewDiffForPath = useCallback((path: string) => {
@@ -1844,6 +1856,8 @@ function AppContent() {
           onToggleStudioMode={setIsStudioMode}
           errorCount={errorHistory.length}
           onOpenErrors={() => setIsErrorModalOpen(true)}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
         />
 
         {/* Global Error Banner */}

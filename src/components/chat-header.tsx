@@ -12,6 +12,8 @@ import {
   ChevronDown,
   MessageSquare,
   Bot,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { ClaudeLogo } from './claude-logo';
 import { ActiveRepoState } from '../lib/types';
@@ -32,6 +34,8 @@ interface ChatHeaderProps {
   onToggleStudioMode?: (isStudio: boolean) => void;
   errorCount?: number;
   onOpenErrors?: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
@@ -50,6 +54,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   onToggleStudioMode,
   errorCount = 0,
   onOpenErrors,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   return (
     <header className="h-14 sm:h-15 border-b border-[#2d2b26] bg-dark-header/90 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between relative sticky top-0 z-30 select-none max-w-full">
@@ -193,6 +199,22 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
                 isTerminalOpen ? 'rotate-180 text-[#d97757]' : ''
               }`}
             />
+          </button>
+        )}
+
+        {onToggleTheme && (
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
+            title={theme === 'dark' ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'}
+            className="p-1.5 rounded-lg text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#282622] transition-colors cursor-pointer group"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform duration-300" />
+            ) : (
+              <Moon className="w-4 h-4 text-indigo-400 group-hover:-rotate-12 transition-transform duration-300" />
+            )}
           </button>
         )}
 
