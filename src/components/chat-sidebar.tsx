@@ -9,14 +9,16 @@ import {
   Settings,
   GitBranch,
   FolderGit2,
+  Sparkles,
 } from 'lucide-react';
-import { Conversation, ActiveRepoState } from '../lib/types';
+import { Conversation, ActiveRepoState, Skill, McpServer } from '../lib/types';
 import { formatDate } from '../lib/utils';
 import { PWAInstallButton } from './pwa-install-button';
 import { ClaudeLogo } from './claude-logo';
 import { RepoList } from './github/repo-list';
 import { FileExplorer } from './github/file-explorer';
 import { SourceControlPanel } from './source-control/source-control-panel';
+import { ExtensionsPanel } from './extensions/extensions-panel';
 
 interface ChatSidebarProps {
   conversations: Conversation[];
@@ -30,12 +32,23 @@ interface ChatSidebarProps {
   onClose: () => void;
   // GitHub & Source Control props
   activeRepo: ActiveRepoState | null;
-  sidebarTab: 'chats' | 'repos' | 'source-control';
-  onChangeTab: (tab: 'chats' | 'repos' | 'source-control') => void;
+  sidebarTab: 'chats' | 'repos' | 'source-control' | 'skills';
+  onChangeTab: (tab: 'chats' | 'repos' | 'source-control' | 'skills') => void;
   onSelectRepo: (repo: ActiveRepoState) => void;
   onCloseRepo: () => void;
   onChangeBranch: (branch: string) => void;
   pendingChangesCount: number;
+  // Skills & MCP props
+  skills: Skill[];
+  onToggleSkill: (id: string) => void;
+  onAddSkill: (skill: Omit<Skill, 'id' | 'isBuiltin'>) => void;
+  onDeleteSkill: (id: string) => void;
+  mcpServers: McpServer[];
+  onAddMcpServer: (server: { name: string; url: string; transport: 'sse' | 'http'; apiKey?: string }) => void;
+  onToggleMcpServer: (id: string) => void;
+  onDeleteMcpServer: (id: string) => void;
+  onTestMcpServer: (id: string) => Promise<void>;
+  testingServerId?: string | null;
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
@@ -55,6 +68,16 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
   onCloseRepo,
   onChangeBranch,
   pendingChangesCount,
+  skills,
+  onToggleSkill,
+  onAddSkill,
+  onDeleteSkill,
+  mcpServers,
+  onAddMcpServer,
+  onToggleMcpServer,
+  onDeleteMcpServer,
+  onTestMcpServer,
+  testingServerId,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -170,6 +193,19 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
               </span>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeTab('skills')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer relative ${
+              sidebarTab === 'skills'
+                ? 'bg-[#2b2823] text-[#f3efe6] border border-[#3e3b33] shadow-xs'
+                : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span>Skills</span>
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -200,6 +236,19 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
             }}
             onOpenSettings={onOpenSettings}
             onChangeBranch={onChangeBranch}
+          />
+        ) : sidebarTab === 'skills' ? (
+          <ExtensionsPanel
+            skills={skills}
+            onToggleSkill={onToggleSkill}
+            onAddSkill={onAddSkill}
+            onDeleteSkill={onDeleteSkill}
+            mcpServers={mcpServers}
+            onAddMcpServer={onAddMcpServer}
+            onToggleMcpServer={onToggleMcpServer}
+            onDeleteMcpServer={onDeleteMcpServer}
+            onTestMcpServer={onTestMcpServer}
+            testingServerId={testingServerId}
           />
         ) : (
           <>

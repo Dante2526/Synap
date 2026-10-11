@@ -12,6 +12,8 @@ import {
   MessageEditedFile,
   MessageToolCall,
   ChangeType,
+  Skill,
+  McpServer,
 } from './lib/types';
 import {
   loadConversations,
@@ -20,6 +22,10 @@ import {
   saveSettings,
   clearAllConversations,
   DEFAULT_SETTINGS,
+  loadSkills,
+  saveSkills,
+  loadMcpServers,
+  saveMcpServers,
 } from './lib/storage';
 import { generateId, generateTitleFromMessage, formatFileSize } from './lib/utils';
 import { ChatHeader } from './components/chat-header';
@@ -38,6 +44,11 @@ import { StudioPanel } from './studio/studio-panel';
 import { ErrorModal, AppErrorInfo } from './components/error-modal';
 import { CompactionMarker } from './components/compaction-marker';
 import { prepareMessagesForApi, shouldCompact, compactConversation } from './lib/context-compactor';
+import {
+  convertMcpToolsToOpenAi,
+  testMcpConnection,
+  executeMcpToolCall,
+} from './lib/mcp-client';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -256,10 +267,15 @@ function AppContent() {
   // Settings
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
-  // GitHub & Source Control state
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'repos' | 'source-control'>('chats');
+  // GitHub, Source Control & Extensions state
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'repos' | 'source-control' | 'skills'>('chats');
   const [activeRepo, setActiveRepo] = useState<ActiveRepoState | null>(null);
   const [isStudioMode, setIsStudioMode] = useState<boolean>(false);
+
+  // Skills & MCP state
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
 
   const [diffViewingChange, setDiffViewingChange] = useState<PendingChange | null>(null);
   const [toastNotification, setToastNotification] = useState<{
@@ -394,6 +410,14 @@ function AppContent() {
         else setActiveRepo(null);
       }
     });
+
+    loadSkills().then((loadedSkills) => {
+      setSkills(loadedSkills);
+    });
+
+    loadMcpServers().then((loadedServers) => {
+      setMcpServers(loadedServers);
+    });
   }, []);
 
   // Persist conversations
@@ -402,6 +426,20 @@ function AppContent() {
       saveConversations(conversations);
     }
   }, [conversations, settings.saveHistoryLocally]);
+
+  // Persist skills
+  useEffect(() => {
+    if (skills.length > 0) {
+      saveSkills(skills);
+    }
+  }, [skills]);
+
+  // Persist mcpServers
+  useEffect(() => {
+    if (mcpServers.length > 0) {
+      saveMcpServers(mcpServers);
+    }
+  }, [mcpServers]);
 
   // Handle user scroll detection on message container
   const handleMessagesScroll = useCallback(() => {
@@ -518,6 +556,85 @@ function AppContent() {
       );
     }
   }, [activeRepo, activeId]);
+
+  // Skills & MCP Handlers
+  const handleToggleSkill = useCallback((id: string) => {
+    setSkills((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
+    );
+  }, []);
+
+  const handleAddSkill = useCallback((skillData: Omit<Skill, 'id' | 'isBuiltin'>) => {
+    const newSkill: Skill = {
+      ...skillData,
+      id: generateId(),
+      isBuiltin: false,
+    };
+    setSkills((prev) => [...prev, newSkill]);
+  }, []);
+
+  const handleDeleteSkill = useCallback((id: string) => {
+    setSkills((prev) => prev.filter((s) => s.id !== id || s.isBuiltin));
+  }, []);
+
+  const handleAddMcpServer = useCallback(async (serverData: { name: string; url: string; transport: 'sse' | 'http'; apiKey?: string }) => {
+    const newServer: McpServer = {
+      id: generateId(),
+      name: serverData.name,
+      url: serverData.url,
+      transport: serverData.transport,
+      apiKey: serverData.apiKey,
+      enabled: true,
+      status: 'disconnected',
+      tools: [],
+    };
+    setMcpServers((prev) => [...prev, newServer]);
+    setTestingServerId(newServer.id);
+    const result = await testMcpConnection(newServer);
+    setMcpServers((prev) =>
+      prev.map((s) =>
+        s.id === newServer.id
+          ? {
+              ...s,
+              status: result.success ? 'connected' : 'error',
+              tools: result.tools,
+              errorMessage: result.error,
+            }
+          : s
+      )
+    );
+    setTestingServerId(null);
+  }, []);
+
+  const handleToggleMcpServer = useCallback((id: string) => {
+    setMcpServers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
+    );
+  }, []);
+
+  const handleDeleteMcpServer = useCallback((id: string) => {
+    setMcpServers((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const handleTestMcpServer = useCallback(async (id: string) => {
+    const target = mcpServers.find((s) => s.id === id);
+    if (!target) return;
+    setTestingServerId(id);
+    const result = await testMcpConnection(target);
+    setMcpServers((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              status: result.success ? 'connected' : 'error',
+              tools: result.tools,
+              errorMessage: result.error,
+            }
+          : s
+      )
+    );
+    setTestingServerId(null);
+  }, [mcpServers]);
 
   const handleOpenTerminal = useCallback(() => {
     setIsTerminalOpen(true);
@@ -1141,6 +1258,21 @@ function AppContent() {
         '✅ 5. CRITÉRIOS DE SUCESSO & PRIMEIRO PASSO IMEDIATO (A primeira ação para começar hoje mesmo).'
       : undefined;
 
+    // Injetar habilidades modulares ativas (Skills)
+    const activeSkills = skills.filter((s) => s.enabled);
+    const skillsPrompt = activeSkills.length > 0
+      ? '--- HABILIDADES MODULARES ATIVAS (SKILLS) ---\n' +
+        activeSkills
+          .map((s) => `### Habilidade: ${s.name}\n${s.systemPrompt}`)
+          .join('\n\n')
+      : undefined;
+
+    // Obter ferramentas ativas de servidores MCP conectados
+    const activeMcpServers = mcpServers.filter((s) => s.enabled && s.status === 'connected' && s.tools.length > 0);
+    const mcpOpenAiTools = activeMcpServers.flatMap((s) => convertMcpToolsToOpenAi(s.tools, s.id));
+    const baseTools = chatActiveRepo ? ALL_CHAT_TOOLS : DEFAULT_CHAT_TOOLS;
+    const requestTools = [...baseTools, ...mcpOpenAiTools];
+
     const convForPayload: Conversation = currentConv
       ? { ...currentConv, messages: [...currentConv.messages, userMessage] }
       : {
@@ -1159,6 +1291,7 @@ function AppContent() {
       base: basePrompt,
       repo: repoPrompt,
       plan: planPrompt,
+      skills: skillsPrompt,
     });
 
     const controller = new AbortController();
@@ -1189,7 +1322,7 @@ function AppContent() {
             messages: currentMessagesForApi,
             model: effectiveModel,
             reasoning_effort: reasoningEffort,
-            tools: chatActiveRepo ? ALL_CHAT_TOOLS : DEFAULT_CHAT_TOOLS,
+            tools: requestTools.length > 0 ? requestTools : undefined,
           }),
           signal: controller.signal,
         });
@@ -1458,9 +1591,18 @@ function AppContent() {
             let execution: any = null;
 
             try {
-              execution = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
-              result = execution.result;
-              editedFile = execution.editedFile;
+              if (tc.name.startsWith('mcp__')) {
+                const targetServer = mcpServers.find((s) => tc.name.startsWith(`mcp__${s.id}__`));
+                if (targetServer) {
+                  result = await executeMcpToolCall(targetServer, tc.name, parsedArgs);
+                } else {
+                  result = JSON.stringify({ error: `Servidor MCP correspondente não encontrado para ${tc.name}` });
+                }
+              } else {
+                execution = await executeGitHubTool(tc.name, parsedArgs, chatActiveRepo);
+                result = execution.result;
+                editedFile = execution.editedFile;
+              }
 
               const callEntry = allToolCalls.find((x) => x.id === tc.id);
               if (callEntry) {
@@ -1607,7 +1749,7 @@ function AppContent() {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [isPlanMode, selectedModel, activeId, activeConversation, reasoningEffort, activeRepo, conversations, changes]);
+  }, [isPlanMode, selectedModel, activeId, activeConversation, reasoningEffort, activeRepo, conversations, changes, skills, mcpServers]);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -1647,7 +1789,7 @@ function AppContent() {
         </div>
       )}
 
-      {/* Sidebar with Chats, Repos and Source Control tabs */}
+      {/* Sidebar with Chats, Repos, Source Control and Skills tabs */}
       <ChatSidebar
         conversations={conversations}
         activeId={activeId}
@@ -1665,6 +1807,16 @@ function AppContent() {
         onCloseRepo={handleCloseRepo}
         onChangeBranch={handleChangeBranch}
         pendingChangesCount={pendingChangesCount}
+        skills={skills}
+        onToggleSkill={handleToggleSkill}
+        onAddSkill={handleAddSkill}
+        onDeleteSkill={handleDeleteSkill}
+        mcpServers={mcpServers}
+        onAddMcpServer={handleAddMcpServer}
+        onToggleMcpServer={handleToggleMcpServer}
+        onDeleteMcpServer={handleDeleteMcpServer}
+        onTestMcpServer={handleTestMcpServer}
+        testingServerId={testingServerId}
       />
 
       {/* Main Content Area */}

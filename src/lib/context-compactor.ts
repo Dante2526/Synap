@@ -123,7 +123,7 @@ export async function compactConversation(
  */
 export function prepareMessagesForApi(
   conversation: Conversation,
-  systemPrompts: { repo?: string; base?: string; plan?: string } = {}
+  systemPrompts: { repo?: string; base?: string; plan?: string; skills?: string } = {}
 ): any[] {
   let effectiveMessages = [...conversation.messages];
   let compactedSummaryPrompt: any = null;
@@ -157,6 +157,7 @@ export function prepareMessagesForApi(
 
   const finalMessages: any[] = [];
   if (systemPrompts.base) finalMessages.push({ role: 'system', content: systemPrompts.base });
+  if (systemPrompts.skills) finalMessages.push({ role: 'system', content: systemPrompts.skills });
   if (systemPrompts.repo) finalMessages.push({ role: 'system', content: systemPrompts.repo });
   if (systemPrompts.plan) finalMessages.push({ role: 'system', content: systemPrompts.plan });
   if (compactedSummaryPrompt) finalMessages.push(compactedSummaryPrompt);
