@@ -42,4 +42,17 @@ Durante esta sessão massiva de engenharia, efetuamos uma varredura completa na 
 - **Feedback de Sub-passos:** O `Loader2` estático dos passos de progresso (`step.status === 'in_progress'`) foi substituído por um mini `ThinkingOrb` no modo `working`.
 - **Elegância na Conclusão:** Quando o passo é concluído, o avatar retorna ao ícone nativo com um brilho suave (`drop-shadow`), mantendo o design refinado e limpo.
 
-**Status atual da Aplicação:** Estável, ultra perfomática em Edge, segurada contra manipulações externas indevidas, e com feedback visual de alto nível. O *Deploy* está verde.
+## 9. Context Compaction Automático (Padrão Claude Code)
+- **Problema:** Conversas longas acumulavam dezenas de mensagens, anexos de código e chamadas de ferramentas, inflando o consumo de tokens e degradando o foco do raciocínio da IA (context bloat / amnésia).
+- **Solução Implementada:**
+  - **Zero Deleção Visual:** Na interface do chat, todas as mensagens continuam 100% visíveis quando o usuário rola para cima.
+  - **Gatilho Inteligente:** Quando a conversa atinge o limiar (> 16 mensagens), o Synap dispara uma compactação em segundo plano usando `z-ai/glm-5.3-flash` sem travar a navegação.
+  - **Resumo Estruturado:** O motor captura Metas, Decisões Técnicas, Arquivos Lidos/Modificados e Próximos Passos Imediatos em Markdown estruturado.
+  - **Payload Otimizado:** As requisições subsequentes para a API enviam apenas o bloco de resumo do sistema + as últimas 6 mensagens recentes, economizando drasticamente tokens.
+  - **Divisor Visual (`CompactionMarker`):** Um marcador sutil com ícone `Zap` divide as mensagens arquivadas das ativas, permitindo expandir e auditar o resumo técnico a qualquer momento.
+  - **Evidências de Verificação:**
+    - Testes unitários automatizados em `src/lib/context-compactor.test.ts` (5/5 passando).
+    - Validação de tipos estritos: `tsc --noEmit` com 0 erros.
+    - Build de produção Vite verde em `dist/`.
+
+**Status atual da Aplicação:** Estável, ultra performática em Edge, com Context Compaction ativo, e build verde.
