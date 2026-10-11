@@ -9,7 +9,7 @@ import {
   Settings,
   GitBranch,
   FolderGit2,
-  Sparkles,
+  Blocks,
 } from 'lucide-react';
 import { Conversation, ActiveRepoState, Skill, McpServer } from '../lib/types';
 import { formatDate } from '../lib/utils';
@@ -203,7 +203,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = React.memo(({
                 : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <Blocks className="w-3.5 h-3.5 text-purple-400 shrink-0" />
             <span>Skills</span>
           </button>
         </div>

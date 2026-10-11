@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Sparkles,
+  Blocks,
   FlaskConical,
   Bug,
   ShieldCheck,
@@ -105,7 +105,7 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({
       case 'zap':
         return <Zap className="w-4 h-4 text-amber-400" />;
       default:
-        return <Sparkles className="w-4 h-4 text-purple-400" />;
+        return <Blocks className="w-4 h-4 text-purple-400" />;
     }
   };
 
@@ -122,7 +122,7 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({
               : 'text-[#8c867a] hover:text-[#c4bfb6] hover:bg-[#201e1a]'
           }`}
         >
-          <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <Blocks className="w-3.5 h-3.5 text-purple-400 shrink-0" />
           <span>Habilidades</span>
           {activeSkillsCount > 0 && (
             <span className="ml-1 px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold">
@@ -378,7 +378,7 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({
           <div className="w-full max-w-sm rounded-2xl bg-[#23211d] border border-[#3b3831] p-4 space-y-3 shadow-2xl text-xs">
             <div className="flex items-center justify-between pb-2 border-b border-[#3b3831]">
               <span className="font-semibold text-[#f3efe6] flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-purple-400" />
+                <Blocks className="w-4 h-4 text-purple-400" />
                 Nova Habilidade Customizada
               </span>
               <button
