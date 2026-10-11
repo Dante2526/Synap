@@ -1,9 +1,19 @@
 @import "tailwindcss";
 
+@theme {
+  --color-dark-bg: #111217;
+  --color-dark-bg-secondary: #1E2029;
+  --color-dark-card: #1E2029;
+  --color-dark-header: #15171E;
+  --color-dark-hover: #252836;
+  --color-dark-text: #F7FAFC;
+  --color-dark-text-secondary: #A0AEC0;
+}
+
 @layer base {
   body {
-    background-color: #111217;
-    color: #f3efe6;
+    background-color: var(--color-dark-bg, #111217);
+    color: var(--color-dark-text, #f7fafc);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
