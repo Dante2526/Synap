@@ -136,3 +136,34 @@ export interface AppSettings {
   speechVoice?: string;
   speechRate?: number;
 }
+
+export type SkillIcon = 'flask' | 'bug' | 'shield' | 'zap' | 'sparkles';
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  icon: SkillIcon;
+  systemPrompt: string;
+  enabled: boolean;
+  isBuiltin?: boolean;
+}
+
+export interface McpTool {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, any>;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  transport: 'sse' | 'http';
+  apiKey?: string;
+  enabled: boolean;
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
+  errorMessage?: string;
+  tools: McpTool[];
+  lastConnectedAt?: number;
+}

@@ -1,11 +1,69 @@
 import { get, set, clear } from 'idb-keyval';
-import { Conversation, AppSettings } from './types';
+import { Conversation, AppSettings, Skill, McpServer } from './types';
 import { StudioSession } from '../studio/studio-types';
 
 const STUDIO_SESSIONS_KEY = 'synap_studio_sessions';
-
 const CONVERSATIONS_KEY = 'nim_chat_conversations_v1';
 const SETTINGS_KEY = 'nim_chat_settings_v1';
+const SKILLS_KEY = 'synap_skills_v1';
+const MCP_SERVERS_KEY = 'synap_mcp_servers_v1';
+
+export const BUILTIN_SKILLS: Skill[] = [
+  {
+    id: 'tdd',
+    name: 'Test-Driven Development (TDD)',
+    description: 'Exige escrita de testes antes de implementar código (RED ➔ GREEN ➔ REFACTOR).',
+    icon: 'flask',
+    enabled: false,
+    isBuiltin: true,
+    systemPrompt:
+      'Você está operando sob a regra estrita de Test-Driven Development (TDD):\n' +
+      '1. NUNCA escreva código de produção sem antes escrever um teste automatizado que falhe (RED).\n' +
+      '2. Valide o teste antes de prosseguir com a implementação.\n' +
+      '3. Escreva apenas o código estritamente necessário para fazer o teste passar (GREEN).\n' +
+      '4. Refatore com segurança preservando todos os testes verdes.',
+  },
+  {
+    id: 'debugging',
+    name: 'Systematic Debugging',
+    description: 'Investiga causa raiz com método científico: hipótese ➔ evidência ➔ conclusão (zero chutes).',
+    icon: 'bug',
+    enabled: false,
+    isBuiltin: true,
+    systemPrompt:
+      'Você está operando sob a diretriz de Systematic Debugging:\n' +
+      '1. NUNCA tente adivinhar a correção ou fazer alterações aleatórias.\n' +
+      '2. Formule hipóteses claras com base nos logs, código e mensagens de erro.\n' +
+      '3. Colete evidências irrefutáveis antes de propor qualquer modificação.\n' +
+      '4. Identifique e resolva a causa raiz, nunca apenas os sintomas superficiais.',
+  },
+  {
+    id: 'security',
+    name: 'Code Review & Segurança',
+    description: 'Auditoria contínua de vulnerabilidades OWASP, tipagem estrita no TypeScript e robustez.',
+    icon: 'shield',
+    enabled: false,
+    isBuiltin: true,
+    systemPrompt:
+      'Você está atuando como Auditor de Código e Segurança Sênior:\n' +
+      '1. Verifique vulnerabilidades de injeção, vazamento de credenciais e sanitização de inputs.\n' +
+      '2. Exija tipagem estrita no TypeScript, sem uso permissivo de `any`.\n' +
+      '3. Identifique possíveis condições de corrida, concorrência desprotegida e vazamentos de memória.',
+  },
+  {
+    id: 'perf',
+    name: 'Performance & Otimização',
+    description: 'Otimiza concorrência, divide bundles, previne re-renderizações e minimiza latência.',
+    icon: 'zap',
+    enabled: false,
+    isBuiltin: true,
+    systemPrompt:
+      'Você é um especialista em Performance e Arquitetura de Alto Desempenho:\n' +
+      '1. Analise criticamente o impacto de re-renders no React (uso correto de memo, callbacks, throttles).\n' +
+      '2. Otimize imports e lazy loading para manter o bundle enxuto.\n' +
+      '3. Evite operações bloqueantes no loop de eventos e minimize overhead de chamadas de rede.',
+  },
+];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   saveHistoryLocally: true,
@@ -94,3 +152,45 @@ export function exportConversationsToJSON(conversations: Conversation[]): void {
   downloadAnchor.click();
   downloadAnchor.remove();
 }
+
+export async function loadSkills(): Promise<Skill[]> {
+  try {
+    const data = await get<Skill[]>(SKILLS_KEY);
+    if (!data || data.length === 0) {
+      return BUILTIN_SKILLS;
+    }
+    const existingIds = new Set(data.map((s) => s.id));
+    const missingBuiltins = BUILTIN_SKILLS.filter((b) => !existingIds.has(b.id));
+    return [...data, ...missingBuiltins];
+  } catch (error) {
+    console.error('Failed to load skills from IndexedDB:', error);
+    return BUILTIN_SKILLS;
+  }
+}
+
+export async function saveSkills(skills: Skill[]): Promise<void> {
+  try {
+    await set(SKILLS_KEY, skills);
+  } catch (error) {
+    console.error('Failed to save skills to IndexedDB:', error);
+  }
+}
+
+export async function loadMcpServers(): Promise<McpServer[]> {
+  try {
+    const data = await get<McpServer[]>(MCP_SERVERS_KEY);
+    return data || [];
+  } catch (error) {
+    console.error('Failed to load MCP servers from IndexedDB:', error);
+    return [];
+  }
+}
+
+export async function saveMcpServers(servers: McpServer[]): Promise<void> {
+  try {
+    await set(MCP_SERVERS_KEY, servers);
+  } catch (error) {
+    console.error('Failed to save MCP servers to IndexedDB:', error);
+  }
+}
+
