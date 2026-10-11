@@ -49,7 +49,7 @@ import {
   testMcpConnection,
   executeMcpToolCall,
 } from './lib/mcp-client';
-import { ThemeMode, getInitialTheme, applyTheme } from './lib/theme';
+import { ThemeMode, getInitialTheme, applyTheme, toggleThemeWithTransition } from './lib/theme';
 
 const MODEL_STORAGE_KEY = 'nim_chat_selected_model';
 const REASONING_STORAGE_KEY = 'nim_chat_reasoning_effort';
@@ -648,9 +648,11 @@ function AppContent() {
     setIsTerminalOpen(true);
   }, []);
 
-  const handleToggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  }, []);
+  const handleToggleTheme = useCallback((e?: React.MouseEvent) => {
+    toggleThemeWithTransition(theme, e, (newTheme) => {
+      setTheme(newTheme);
+    });
+  }, [theme]);
 
   const handleViewDiffForPath = useCallback((path: string) => {
     const found = changes.find(

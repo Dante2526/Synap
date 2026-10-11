@@ -35,7 +35,7 @@ interface ChatHeaderProps {
   errorCount?: number;
   onOpenErrors?: () => void;
   theme?: 'dark' | 'light';
-  onToggleTheme?: () => void;
+  onToggleTheme?: (e: React.MouseEvent) => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
@@ -205,7 +205,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
         {onToggleTheme && (
           <button
             type="button"
-            onClick={onToggleTheme}
+            onClick={(e) => onToggleTheme(e)}
             aria-label={theme === 'dark' ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
             title={theme === 'dark' ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'}
             className="p-1.5 rounded-lg text-[#a39d93] hover:text-[#f3efe6] hover:bg-[#282622] transition-colors cursor-pointer group"
